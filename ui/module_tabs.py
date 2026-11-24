@@ -134,7 +134,7 @@ class ModuleTabs(QFrame):
         self._syncing = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setContentsMargins(14, 5, 14, 5)
         layout.setSpacing(0)
         self._layout = layout
 
@@ -511,12 +511,14 @@ class ModuleTabs(QFrame):
         self.setStyleSheet(
             """
             QFrame#module-tabs {
-                background: %(app_bg)s;
+                background: transparent;
+                border-top-left-radius: 18px;
+                border-top-right-radius: 18px;
                 border-bottom: 1px solid %(border)s;
             }
             QFrame#module-tabs-track {
-                background: #E2DCF2;
-                border: 1px solid #D5CDE9;
+                background: %(surface_soft)s;
+                border: 1px solid %(border)s;
                 border-radius: 10px;
             }
             QTabBar#module-tab-bar {
@@ -573,6 +575,7 @@ class ModuleTabs(QFrame):
             % {
                 "app_bg": app_bg,
                 "surface": surface,
+                "surface_soft": tokens.get("SURFACE_SOFT", "#F2EEFB"),
                 "border": border,
                 "border_strong": border_strong,
                 "text": text,

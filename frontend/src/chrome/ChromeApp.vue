@@ -407,19 +407,8 @@ body {
   color: var(--ink);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  background: var(--app-bg, var(--sidebar-bg));
-  padding: 8px 4px 8px 8px;
-}
-
-body::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(420px 300px at -40px -30px, var(--aurora-start), transparent 72%),
-    radial-gradient(380px 320px at 110% 108%, var(--aurora-end), transparent 72%);
-  opacity: 0.16;
+  background: var(--app-bg, #EBE7F6);
+  padding: 12px 10px 12px 12px;
 }
 
 svg.ic {
@@ -439,7 +428,7 @@ svg.ic {
     transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 晴空棱镜紫 · 悬浮圆角侧轨（高通透纯白表面替代重模糊，流畅且保留完整导航） */
+/* 晴空棱镜紫 · 悬浮圆角侧轨（与右侧模块浮卡严格对齐 12px 外距、18px 圆角与柔和投影） */
 .sidebar {
   position: relative;
   z-index: 1;
@@ -448,11 +437,11 @@ svg.ic {
   flex-direction: column;
   padding: 0 10px 10px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(206, 196, 238, 0.85);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(251, 250, 255, 0.98) 100%);
+  border: 1px solid var(--elevated-border, #D0CBDD);
   box-shadow:
-    0 10px 28px rgba(60, 44, 124, 0.10),
-    0 2px 6px rgba(60, 44, 124, 0.04),
+    0 8px 20px rgba(66, 50, 134, 0.10),
+    0 2px 6px rgba(66, 50, 134, 0.05),
     inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
@@ -670,6 +659,7 @@ svg.ic {
 
 /* Icon-only responsive mode (Compact 84px / Narrow 72px). */
 @media (max-width: 120px) {
+  body { padding: 12px 8px 12px 10px; }
   .sidebar { padding: 0 0 12px; align-items: center; }
   .brand { justify-content: center; padding: 0; height: 64px; }
   .brand-name, .g-label, .mode-bar, .pinned-group, .pin-btn { display: none; }

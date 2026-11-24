@@ -509,3 +509,58 @@ def make_onboarding_guide(
         compact=compact,
         parent=parent,
     )
+
+
+class FloatingSurfaceHost(QFrame):
+    """在父画布上直接绘制柔和多层悬浮投影的轻量容器（零 QGraphicsEffect，兼容 WebEngine）。"""
+
+    def __init__(
+        self,
+        card: QWidget,
+        *,
+        radius: int = 18,
+        margins: tuple[int, int, int, int] = (2, 12, 12, 12),
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._card = card
+        self._radius = int(radius)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*margins)
+        lay.setSpacing(0)
+        lay.addWidget(card, 1)
+        self._host_layout = lay
+
+    def set_card_margins(self, left: int, top: int, right: int, bottom: int) -> None:
+        self._host_layout.setContentsMargins(int(left), int(top), int(right), int(bottom))
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        card = self._card
+        if card is None or not card.isVisible():
+            return
+        rect = card.geometry()
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QColor, QPainter, QPainterPath
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        # 与左侧悬浮菜单 CSS box-shadow 同源的多层淡紫阴影，无离屏缓存开销
+        layers = (
+            (-4, 2, 4, 8, 4),
+            (-3, 2, 3, 6, 7),
+            (-2, 1, 2, 4, 10),
+            (-1, 1, 1, 3, 14),
+            (0, 1, 0, 1, 18),
+        )
+        for dl, dt, dr, db, alpha in layers:
+            r = QRectF(rect.adjusted(dl, dt, dr, db))
+            path = QPainterPath()
+            path.addRoundedRect(r, self._radius + 2, self._radius + 2)
+            painter.fillPath(path, QColor(66, 50, 134, alpha))
+        painter.end()

@@ -461,10 +461,10 @@ body {
   line-height: 1.5;
   color: var(--text);
   background:
-    radial-gradient(640px 360px at 6% 0%, rgba(124, 106, 230, 0.18), transparent 65%),
-    radial-gradient(580px 420px at 94% 100%, rgba(14, 165, 233, 0.12), transparent 65%),
-    radial-gradient(460px 300px at 54% 38%, rgba(238, 233, 255, 0.50), transparent 70%),
-    var(--app-bg);
+    radial-gradient(640px 360px at 6% 0%, rgba(124, 106, 230, 0.11), transparent 65%),
+    radial-gradient(580px 420px at 94% 100%, rgba(14, 165, 233, 0.08), transparent 65%),
+    radial-gradient(460px 300px at 54% 38%, rgba(238, 233, 255, 0.34), transparent 70%),
+    var(--sidebar-bg, #F7F6FC);
 }
 button, input, select, textarea { font: inherit; }
 *, *::before, *::after { box-sizing: border-box; }

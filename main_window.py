@@ -272,28 +272,37 @@ class MainWindow(QMainWindow):
             log_web_event('web_shell_disabled_startup', reason=reason)
             layout.addWidget(self._create_prism_sidebar())
 
-        content = QFrame()
-        content.setObjectName('content_area')
-        content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self._content_frame = content
-        self._content_layout = QVBoxLayout(content)
+        from ui.page_chrome import FloatingSurfaceHost
+
+        self._workspace_card = QFrame()
+        self._workspace_card.setObjectName('workspace-floating-card')
+        self._workspace_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._content_layout = QVBoxLayout(self._workspace_card)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(0)
+
+        content = FloatingSurfaceHost(
+            self._workspace_card,
+            radius=18,
+            margins=(2, 12, 12, 12),
+        )
+        content.setObjectName('content_area')
+        self._content_frame = content
 
         self._context_header = None
 
         # Tabs identify the current module; keep the workspace directly below them.
-        self._module_tabs = ModuleTabs(language=self.language, parent=content)
+        self._module_tabs = ModuleTabs(language=self.language, parent=self._workspace_card)
         self.module_tabs = self._module_tabs
         self._module_tabs.activate_requested.connect(self._on_module_tab_activate)
         self._module_tabs.close_requested.connect(self._on_module_tab_close)
         self._module_tabs.context_requested.connect(self._on_module_tab_context)
         self._content_layout.addWidget(self._module_tabs, 0)
 
-        self._page_body = QFrame(self._content_frame)
+        self._page_body = QFrame(self._workspace_card)
         self._page_body.setObjectName('page-body')
         self._page_body_layout = QVBoxLayout(self._page_body)
-        self._page_body_layout.setContentsMargins(20, 20, 20, 20)
+        self._page_body_layout.setContentsMargins(16, 12, 16, 14)
         self._page_body_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
@@ -1199,25 +1208,30 @@ class MainWindow(QMainWindow):
         user menu and collapse affordances reachable without keeping a hidden
         legacy widget alive.
         """
+        from ui.page_chrome import FloatingSurfaceHost
         from ui.prism_sidebar import PrismSidebar
 
-        shell = QFrame()
-        shell.setObjectName('sidebar')
-        shell.setFixedWidth(248)
-        outer = QVBoxLayout(shell)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        card = QFrame()
+        card.setObjectName('sidebar-floating-card')
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(0)
 
         prism = PrismSidebar(
             self._build_web_nav_model(),
             language=self.language,
-            parent=shell,
+            parent=card,
         )
         prism.setObjectName('prism-sidebar')
         prism.navigate_requested.connect(self._show_panel)
         prism.palette_requested.connect(self._open_quick_panel)
         self._prism_sidebar = prism
-        outer.addWidget(prism, 1)
+        card_layout.addWidget(prism, 1)
+
+        shell = FloatingSurfaceHost(card, radius=18, margins=(12, 12, 10, 12))
+        shell.setObjectName('sidebar')
+        shell.setFixedWidth(248)
 
         self._sidebar = shell
         self._brand_block = prism.findChild(QFrame, 'sidebar-brand')
@@ -1793,10 +1807,13 @@ class MainWindow(QMainWindow):
                 else ('Expand all menus' if icon_only else 'Collapse menus')
             )
         if getattr(self, '_prism_sidebar', None) is not None:
-            self._prism_sidebar.setFixedWidth(target_width)
             self._prism_sidebar.set_icon_only(icon_only)
             self._sync_prism_sidebar_index()
-            self._sidebar.layout().setContentsMargins(0, 0, 0, 0)
+            if hasattr(self._sidebar, 'set_card_margins'):
+                if icon_only:
+                    self._sidebar.set_card_margins(10, 12, 8, 12)
+                else:
+                    self._sidebar.set_card_margins(12, 12, 10, 12)
             self.version_label.setVisible(
                 not icon_only and not low_height and not self.version_label.property('titlebarHidden')
             )
@@ -1810,10 +1827,13 @@ class MainWindow(QMainWindow):
                     '展开导航栏' if self.language == 'zh' else 'Expand navigation'
                 )
             margin = content_margin_for_mode(mode)
+            inner_h = 16 if margin >= 16 else 12
+            inner_top = 12 if margin >= 16 else 10
+            inner_bottom = 14 if margin >= 16 else 12
             if hasattr(self, '_page_body_layout') and self._page_body_layout is not None:
-                self._page_body_layout.setContentsMargins(margin, margin, margin, margin)
+                self._page_body_layout.setContentsMargins(inner_h, inner_top, inner_h, inner_bottom)
             if hasattr(self, '_context_header') and self._context_header is not None:
-                self._context_header.set_horizontal_padding(margin)
+                self._context_header.set_horizontal_padding(inner_h)
                 self._context_header.set_compact(is_icon_nav(mode))
             self.layout_mode_changed.emit(mode, low_height)
             return

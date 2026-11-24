@@ -22,13 +22,22 @@ QWidget {
 QMainWindow, QDialog {
     background: __APP_BG__;
 }
-QFrame#content_area, QFrame#page-body, #page-body, QStackedWidget {
+QFrame#content_area {
     background: __APP_BG__;
+    border: none;
+}
+QFrame#workspace-floating-card {
+    background: __SIDEBAR_BG__;
+    border: 1px solid __ELEVATED_BORDER__;
+    border-radius: 18px;
+}
+QFrame#page-body, #page-body, QStackedWidget {
+    background: transparent;
     border: none;
 }
 QStackedWidget > QWidget,
 QStackedWidget > .QWidget {
-    background: __APP_BG__;
+    background: transparent;
 }
 QTabWidget > QStackedWidget,
 QTabWidget > QStackedWidget > QWidget,
@@ -126,8 +135,17 @@ QCheckBox#flag-check::indicator {
 }
 /* —— Astra 浅色导航 —— */
 #sidebar {
-    background: __SIDEBAR_BG__;
-    border-right: 1px solid __SIDEBAR_BORDER__;
+    background: __APP_BG__;
+    border: none;
+}
+QFrame#sidebar-floating-card {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __ELEVATED_BORDER__;
+    border-radius: 18px;
+}
+#prism-sidebar {
+    background: transparent;
+    border: none;
 }
 #sidebar-brand {
     background: transparent;
@@ -2111,7 +2129,8 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     border-top: 1px solid __BORDER__;
     min-height: 27px;
     max-height: 27px;
-    padding-left: 10px;
+    padding-left: 14px;
+    padding-right: 14px;
     font-size: __FONT_SIZE_CAPTION__;
 }
 /* ContextHeader (Prism Client Shell V1.0) */
@@ -3750,20 +3769,34 @@ QPlainTextEdit#chat-composer-input {
     selection-color: __TEXT_STRONG__;
 }
 QFrame#chat-composer-card[compactComposer="true"] {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __BORDER_STRONG__;
     border-radius: 14px;
-    padding: 2px;
+    padding: 0px;
+}
+QFrame#chat-composer-card[compactComposer="true"][focused="true"] {
+    border: 1px solid __PRIMARY__;
 }
 QFrame#chat-composer-card[compactComposer="true"] QPlainTextEdit#chat-composer-input {
-    min-height: 48px;
-    max-height: 80px;
-    border-radius: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 2px 4px;
+    min-height: 40px;
+    max-height: 64px;
+    font-size: 13px;
+}
+QFrame#chat-composer-card[compactComposer="true"] QLabel#field-hint {
+    color: __TEXT_MUTED__;
+    font-size: 11px;
 }
 QFrame#chat-composer-card[compactComposer="true"] QPushButton#chat-send-btn {
-    min-height: 36px;
-    max-height: 36px;
-    border-radius: 10px;
-    padding-left: 14px;
-    padding-right: 14px;
+    min-height: 28px;
+    max-height: 28px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0px 10px;
 }
 QToolButton#chat-attach-btn,
 QPushButton#chat-retry-btn,
