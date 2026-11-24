@@ -33,7 +33,21 @@ class FeatureEntry:
 
 
 _ENGINE_ALIASES = {
-    14: 'oracle mysql oceanbase 达梦 dameng redis mongodb 数据库',
+    0: '首页 工作台 看板 日历 本月足迹 home dashboard',
+    1: '测试数据 身份证 证件 统一社会信用代码 组织机构 车辆 vin 车架号 车牌 发动机',
+    2: '接口文档更新 word docx 表格 修订',
+    3: '发版联动 升级准备 系统配置 sql整理 dml ddl 回滚',
+    6: '命令库 linux 运维 jvm jstack jmap grep awk curl netstat 端口 磁盘',
+    7: '设置 外观 快捷键 模型配置 提醒 备份 数据目录',
+    8: '自我学习 知识库 笔记 归档',
+    9: '日报 工作记录 今日完成 明日计划 周报',
+    10: '需求管理 需求 台账 bug 缺陷 测试点 svn 提签 上线',
+    11: '格式工具 json xml sql格式化 base64 pdf 图片转base64 时间戳 uuid url编码 正则 diff 对比',
+    12: '接口排查 抓包 https 代理 请求验证 重放 mitm http 报文',
+    13: '日志排查 ssh 终端 多机 截取 tail 异常 ai日志',
+    14: 'oracle mysql oceanbase 达梦 dameng redis mongodb 数据库 sql查询 表结构',
+    16: '模型聊天 ai对话 大模型 问答',
+    17: 'agent 工作台 智能体 自动分析',
 }
 
 
@@ -57,14 +71,25 @@ def feature_catalog(*, language: str = 'zh', private_unlocked: bool = True) -> l
         group = GROUP_LABELS.get(group_key, ('', ''))
         group_label = group[0] if zh else group[1]
         detail = item.tooltip_zh if zh else item.tooltip_en
-        blob = ' '.join((
-            title,
-            item.name_zh,
-            item.name_en,
-            detail,
-            group_label,
-            _ENGINE_ALIASES.get(index, ''),
-        )).casefold()
+        try:
+            from tools.pinyin_search import build_search_blob
+            blob = build_search_blob(
+                title,
+                item.name_zh,
+                item.name_en,
+                detail,
+                group_label,
+                _ENGINE_ALIASES.get(index, ''),
+            )
+        except Exception:
+            blob = ' '.join((
+                title,
+                item.name_zh,
+                item.name_en,
+                detail,
+                group_label,
+                _ENGINE_ALIASES.get(index, ''),
+            )).casefold()
         entries.append(FeatureEntry(index, title, detail or group_label, blob))
 
     for group_key, rows in NAV_MODEL:
@@ -75,14 +100,19 @@ def feature_catalog(*, language: str = 'zh', private_unlocked: bool = True) -> l
 
 
 def filter_features(entries: list[FeatureEntry], query: str) -> list[FeatureEntry]:
-    text = str(query or '').strip().casefold()
-    if not text:
+    raw = str(query or '').strip()
+    if not raw:
         return list(entries)
-    parts = [part for part in text.split() if part]
-    return [
-        entry for entry in entries
-        if all(part in entry.haystack for part in parts)
-    ]
+    try:
+        from tools.pinyin_search import match_query
+        return [entry for entry in entries if match_query(entry.haystack, raw)]
+    except Exception:
+        text = raw.casefold()
+        parts = [part for part in text.split() if part]
+        return [
+            entry for entry in entries
+            if all(part in entry.haystack for part in parts)
+        ]
 
 
 class FeatureSearchPopup(QFrame):
@@ -155,6 +185,13 @@ class FeatureSearchPopup(QFrame):
     def _refill(self) -> None:
         matched = filter_features(self._catalog, self.query.text())
         self.results.clear()
+        if not matched:
+            empty_item = QListWidgetItem('未找到匹配的功能模块')
+            empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.results.addItem(empty_item)
+            self.results.setFixedHeight(40)
+            self.adjustSize()
+            return
         for entry in matched:
             item = QListWidgetItem(entry.title)
             item.setToolTip(entry.detail)

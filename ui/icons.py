@@ -143,17 +143,33 @@ def icon_url(role: str) -> str:
     return path.replace('\\', '/') if path else ''
 
 
-def tinted_icon_url(role: str, tint: str) -> str:
-    """按主题色写出临时 SVG，供 QSS 的 tree branch 等使用。"""
-    import re
+def _theme_icon_cache_dir() -> str:
+    """优先落在 LOCALAPPDATA 持久缓存目录，防止 Windows 清理 %TEMP% 导致运行中下拉箭头消失。"""
     import tempfile
+
+    candidates = []
+    local_app = str(os.environ.get('LOCALAPPDATA') or '').strip()
+    if local_app:
+        candidates.append(os.path.join(local_app, 'PengToolsHub', 'cache', 'theme-icons'))
+    candidates.append(os.path.join(tempfile.gettempdir(), 'pengtools-theme-icons'))
+    for directory in candidates:
+        try:
+            os.makedirs(directory, exist_ok=True)
+            return directory
+        except OSError:
+            continue
+    return tempfile.gettempdir()
+
+
+def tinted_icon_url(role: str, tint: str) -> str:
+    """按主题色写出缓存 SVG，供 QSS 的下拉箭头、树展开箭头等稳定引用。"""
+    import re
 
     src = icon_file(role)
     if not src or not src.lower().endswith('.svg'):
         return icon_url(role)
     safe = re.sub(r'[^A-Za-z0-9]+', '', str(tint or ''))[:12] or 'default'
-    cache_dir = os.path.join(tempfile.gettempdir(), 'pengtools-theme-icons')
-    os.makedirs(cache_dir, exist_ok=True)
+    cache_dir = _theme_icon_cache_dir()
     dest = os.path.join(cache_dir, f'{role}-{safe}.svg')
     data = _svg_data_with_tint(src, tint)
     try:

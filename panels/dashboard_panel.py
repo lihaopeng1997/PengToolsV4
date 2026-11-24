@@ -584,12 +584,12 @@ class DashboardPanel(QWidget):
         self.ops = QPushButton()
         self.ai_workbench = QPushButton()
         self._tool_buttons = []
+        self.gateway.hide()  # 加解密已下线隐藏，保留属性兼容；车辆 VIN 已合并入测试数据
+        self.vin.hide()
         for btn, icon, signal in (
             (self.ai_workbench, 'database', self.open_ai_workbench),
-            (self.gateway, 'shield-key', self.open_gateway),
             (self.credit, 'document-id', self.open_credit),
             (self.docx, 'doc-update', self.open_docx),
-            (self.vin, 'vin', self.open_vin),
             (self.ops, 'operations', self.open_ops),
         ):
             apply_button(btn, 'secondary', compact=True, icon=icon, icon_size=16)

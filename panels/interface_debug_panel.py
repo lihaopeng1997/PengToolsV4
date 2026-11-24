@@ -975,11 +975,6 @@ class InterfaceDebugPanel(QWidget):
         ):
             control.setFixedHeight(control_height)
 
-        # 键盘路径：采集 → 定位 → 会话 → 详情 → 请求测试。
-        QWidget.setTabOrder(self.capture_toggle_btn, self.filter_edit)
-        QWidget.setTabOrder(self.filter_edit, self.table)
-        QWidget.setTabOrder(self.table, self.detail_tabs)
-
         rl.addWidget(self.detail_tabs, 1)
         self.mid_splitter.addWidget(right)
         self.session_list_reveal_btn = QPushButton()
@@ -1017,6 +1012,11 @@ class InterfaceDebugPanel(QWidget):
         self.workspace_scroll.setWidgetResizable(True)
         self.workspace_scroll.setWidget(self.mid_splitter)
         session_layout.addWidget(self.workspace_scroll, 1)
+
+        # 待全部控件挂载到同一顶层窗口后再设置 Tab 顺序，消除 Qt 跨窗口警告
+        QWidget.setTabOrder(self.capture_toggle_btn, self.filter_edit)
+        QWidget.setTabOrder(self.filter_edit, self.table)
+        QWidget.setTabOrder(self.table, self.detail_tabs)
 
         self.loading = AuroraProgress(self)
         self._refresh_browsers()
@@ -2523,10 +2523,10 @@ class InterfaceDebugPanel(QWidget):
             ),
             (
                 self.detail_workspace,
-                '查看报文与一键联动解密' if zh else 'Inspect payload & send to tools',
-                '选中左侧任意请求可在右侧查看概览、请求体和响应体，还能一键送入「格式工具」或「加解密」。'
+                '查看报文与一键联动' if zh else 'Inspect payload & send to tools',
+                '选中左侧任意请求可在右侧查看概览、请求体和响应体，还能一键送入「格式工具」排版或带入「请求验证」重放。'
                 if zh else
-                'Inspect headers and bodies here, or send payloads directly to Format Tools / Crypto.',
+                'Inspect headers and bodies here, send payloads to Format Tools, or replay in Request Verify.',
             ),
         ]
         start_guided_tour(self, steps, module_title='接口排查' if zh else 'API Debug', language=self.language)
@@ -2933,7 +2933,6 @@ class InterfaceDebugPanel(QWidget):
         act_copy_url = menu.addAction('复制 URL' if zh else 'Copy URL')
         act_copy_path = menu.addAction('复制路径' if zh else 'Copy path')
         act_format = menu.addAction('送格式工具' if zh else 'Send to Format')
-        act_gw = menu.addAction('送入加解密' if zh else 'Send to Crypto')
         menu.addSeparator()
         act_delete = menu.addAction('删除此条会话' if zh else 'Delete session item')
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -2943,8 +2942,6 @@ class InterfaceDebugPanel(QWidget):
             self._copy_text(host_path_display(rec), sensitive=False)
         elif chosen == act_format:
             self._send_body_side('response', 'format')
-        elif chosen == act_gw:
-            self._send_body_side('response', 'gateway')
         elif chosen == act_delete:
             self._delete_session_record(str(rec.get('id') or ''))
 
