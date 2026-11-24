@@ -311,17 +311,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   justify-content: space-between;
   gap: 10px;
   padding: 22px 26px 20px;
-  border-radius: 22px;
-  background: rgba(253, 253, 255, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 28px rgba(38, 36, 56, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  border-radius: 16px;
+  background: var(--surface, #FDFDFF);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 10px rgba(38, 36, 56, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.98);
   min-width: 0;
   transition: box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms ease;
 }
 
 .hero:hover {
-  border-color: rgba(124, 106, 230, 0.36);
-  box-shadow: 0 12px 32px rgba(108, 88, 217, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  border-color: rgba(108, 88, 217, 0.36);
+  box-shadow: 0 8px 20px rgba(108, 88, 217, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 .hero-bg {
@@ -343,7 +343,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   height: 360px;
   left: -140px;
   top: -190px;
-  background: radial-gradient(circle, rgba(139, 122, 232, 0.30) 0%, rgba(139, 122, 232, 0) 70%);
+  background: radial-gradient(circle, rgba(139, 122, 232, 0.16) 0%, rgba(139, 122, 232, 0) 70%);
 }
 
 .a2 {
@@ -351,7 +351,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   height: 340px;
   right: -120px;
   bottom: -200px;
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.16) 0%, rgba(14, 165, 233, 0) 70%);
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.10) 0%, rgba(14, 165, 233, 0) 70%);
 }
 
 .hero-grid {

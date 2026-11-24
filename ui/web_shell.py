@@ -436,6 +436,15 @@ def _create_web_widget(page_name: str, html_name: str, bridge: HomeBridge,
         return wrap
 
     page = WebLocalPage(wrap)
+    try:
+        from PyQt6.QtGui import QColor
+        from ui.theme_manager import ThemeManager
+        tm = ThemeManager.instance()
+        bg_token = 'APP_BG' if page_name == 'chrome' else 'SIDEBAR_BG'
+        bg_hex = tm.token(bg_token) or ('#EBE7F6' if page_name == 'chrome' else '#F7F6FC')
+        page.setBackgroundColor(QColor(bg_hex))
+    except Exception:
+        pass
     view = _ShellWebView(wrap)
     view.setPage(page)
     _register_channel(page, bridge)

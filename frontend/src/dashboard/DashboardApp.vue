@@ -460,11 +460,25 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
-  background:
-    radial-gradient(640px 360px at 6% 0%, rgba(124, 106, 230, 0.11), transparent 65%),
-    radial-gradient(580px 420px at 94% 100%, rgba(14, 165, 233, 0.08), transparent 65%),
-    radial-gradient(460px 300px at 54% 38%, rgba(238, 233, 255, 0.34), transparent 70%),
-    var(--sidebar-bg, #F7F6FC);
+  background: var(--sidebar-bg, #F7F6FC);
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background: rgba(108, 88, 217, 0.22);
+  border-radius: 999px;
+}
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+  background: rgba(108, 88, 217, 0.42);
 }
 button, input, select, textarea { font: inherit; }
 *, *::before, *::after { box-sizing: border-box; }
@@ -477,7 +491,7 @@ button, input, select, textarea { font: inherit; }
 }
 
 .dashboard-root {
-  padding: 0 0 8px;
+  padding: 3px 6px 14px 2px;
   min-width: 0;
   box-sizing: border-box;
   animation: enter 0.22s ease both;
@@ -651,20 +665,20 @@ button, input, select, textarea { font: inherit; }
 .bento > :nth-child(4) { animation-delay: 140ms; }
 .bento > :nth-child(5) { animation-delay: 180ms; }
 
-/* 便当格卡片的统一外观（采用高通透纯白表面替代实时 backdrop-filter 模糊，消除滚动逐帧重绘卡顿） */
+/* 便当格卡片的统一外观（与外层 18px 悬浮工作区同心协调，统一 16px 圆角与轻盈阴影） */
 .bento :deep(.tile) {
   padding: 16px 16px 14px;
-  border-radius: 20px;
-  background: rgba(253, 253, 255, 0.96);
+  border-radius: 16px;
+  background: var(--surface, #FDFDFF);
   border: 1px solid var(--border);
-  box-shadow: 0 4px 16px rgba(38, 36, 56, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 10px rgba(38, 36, 56, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.96);
   transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease;
 }
 
 .bento :deep(.tile:hover) {
   transform: translateY(-2px);
-  border-color: rgba(108, 88, 217, 0.38);
-  box-shadow: 0 12px 28px rgba(108, 88, 217, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  border-color: rgba(108, 88, 217, 0.36);
+  box-shadow: 0 8px 20px rgba(108, 88, 217, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 .bento :deep(.tile-head) {
