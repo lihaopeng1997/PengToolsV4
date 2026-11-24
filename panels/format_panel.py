@@ -65,7 +65,7 @@ class _SqlFormatTab(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 8, 0, 0)
+        root.setContentsMargins(6, 6, 6, 4)
         root.setSpacing(8)
 
         from ui.wrap_layout import WrapLayout
@@ -277,7 +277,7 @@ class _TextDevHelpersTab(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 8, 0, 0)
+        root.setContentsMargins(6, 6, 6, 4)
         root.setSpacing(8)
 
         tools = QHBoxLayout()
@@ -548,8 +548,8 @@ class _MediaBase64Tab(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 8, 0, 0)
-        root.setSpacing(10)
+        root.setContentsMargins(6, 6, 6, 4)
+        root.setSpacing(8)
 
         # 顶栏：文件选择 / 剪贴板粘贴 / 输出格式 / 76 列换行 / 反向还原 / 清空
         bar = QHBoxLayout()
@@ -1160,15 +1160,20 @@ class FormatToolsPanel(QWidget):
         # JSON：复用 JsonViewer，不改其 API
         json_page = QWidget()
         json_layout = QVBoxLayout(json_page)
-        json_layout.setContentsMargins(0, 4, 0, 0)
+        json_layout.setContentsMargins(6, 6, 6, 4)
+        json_layout.setSpacing(8)
         self.json_viewer = JsonViewer(self.language)
         json_layout.addWidget(self.json_viewer)
         self.tabs.addTab(json_page, 'JSON')
 
-        # XML：复用 XmlWorkspace
+        # XML：复用 XmlWorkspace，外层统一边距保证切换 Tab 顶栏不跳动
+        xml_page = QWidget()
+        xml_layout = QVBoxLayout(xml_page)
+        xml_layout.setContentsMargins(6, 6, 6, 4)
+        xml_layout.setSpacing(8)
         self.xml_workspace = XmlWorkspace(self.language)
-        # 精简 XML 页顶区说明（工具内已有 zone）
-        self.tabs.addTab(self.xml_workspace, 'XML')
+        xml_layout.addWidget(self.xml_workspace)
+        self.tabs.addTab(xml_page, 'XML')
 
         self.sql_tab = _SqlFormatTab(self.language)
         self.tabs.addTab(self.sql_tab, 'SQL')

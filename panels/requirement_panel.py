@@ -1661,6 +1661,8 @@ class RequirementPanel(QWidget):
         self.ticket_btn.clicked.connect(self._open_ticket_submit)
         for button in (self.update_all_btn, self.ticket_btn, self.add_btn, self.toolbar_more_btn):
             size_compact_button(button)
+        self.toolbar_more_btn.setObjectName('btn-secondary')
+        self.toolbar_more_btn.setStyleSheet('QPushButton { padding-right: 22px; }')
         # 顶栏仅保留高频主操作「新建需求」、「更多 ▾」与轻量「引导」，「拉取最新」「一键提签」收纳进「更多」且保留原按钮属性兼容
         from ui.guided_tour import make_guide_button
         self.guide_btn = make_guide_button(self._start_guided_tour, 'zh', toolbar_card)
@@ -1676,10 +1678,10 @@ class RequirementPanel(QWidget):
         except Exception:
             pass
         root.addWidget(toolbar_card)
-        # Local sizing rule: QSS form padding otherwise overrides the fixed height.
+        # Local sizing rule: keep search & filter combos at exact 28px outer height matching compact buttons.
         self._req_toolbar_fields = (self.search_edit, self.month_filter, self.system_filter, self.kind_filter)
         for field in self._req_toolbar_fields:
-            field.setStyleSheet('QComboBox, QLineEdit { min-height: 28px; max-height: 28px; padding-top: 3px; padding-bottom: 3px; }')
+            field.setStyleSheet('QComboBox, QLineEdit { min-height: 20px; max-height: 20px; padding-top: 3px; padding-bottom: 3px; }')
         self.loading = AuroraProgress(self)
 
         # 进度统计：既是概览，也是状态筛选入口

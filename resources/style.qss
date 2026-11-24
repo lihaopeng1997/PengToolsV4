@@ -423,36 +423,45 @@ QPushButton[actionRole="ghost"]:disabled {
     color: __DISABLED_TEXT__;
     border-color: __BORDER__;
 }
-/* 紧凑行内按钮：主按钮保持 14px 胶囊，工具按钮 10px 圆角 */
+/* 紧凑行内按钮：外高严格 28px（20 内容 + 3*2 padding + 1*2 border），与下拉/输入框 FIELD_H=28 像素对齐 */
 QPushButton[compactAction="true"],
 QPushButton#btn-secondary[compactAction="true"],
 QPushButton#btn-danger[compactAction="true"],
 QPushButton#btn-ghost[compactAction="true"],
 QPushButton#ghost-btn[compactAction="true"],
 QPushButton#fold-action-btn[compactAction="true"] {
-    padding: 3px 10px;
-    min-height: 28px;
-    max-height: 28px;
+    padding: 3px 11px;
+    min-height: 20px;
+    max-height: 20px;
     font-size: 12px;
-    border-radius: 10px;
+    border-radius: 8px;
+}
+QPushButton[compactAction="true"]::menu-indicator {
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    right: 7px;
+    width: 9px;
+    height: 9px;
 }
 QPushButton#primary-btn[compactAction="true"],
 QPushButton[actionRole="primary"][compactAction="true"] {
     padding: 3px 14px;
-    min-height: 28px;
-    max-height: 28px;
+    min-height: 20px;
+    max-height: 20px;
     font-size: 12px;
     border-radius: 14px;
 }
 QPushButton[compactAction="false"] {
-    min-height: 32px;
-    padding: 6px 14px;
-    border-radius: 10px;
+    min-height: 22px;
+    max-height: 22px;
+    padding: 4px 14px;
+    border-radius: 9px;
 }
 QPushButton#primary-btn[compactAction="false"],
 QPushButton[actionRole="primary"][compactAction="false"] {
-    min-height: 32px;
-    padding: 6px 18px;
+    min-height: 22px;
+    max-height: 22px;
+    padding: 4px 18px;
     border-radius: 16px;
 }
 QPushButton#fold-action-btn,
@@ -1800,8 +1809,8 @@ QHeaderView#release-table-header::section:hover {
     color: __TEXT_STRONG__;
 }
 QComboBox#table-combo, QComboBox#release-extra-system {
-    min-height: 24px;
-    max-height: 30px;
+    min-height: 20px;
+    max-height: 20px;
     padding: 3px 28px 3px 8px;
     border-radius: 8px;
     border: 1px solid __BORDER__;
@@ -2074,8 +2083,8 @@ QTabWidget#module-tabs::pane {
     padding: 8px;
 }
 QTabBar {
-    min-height: 24px;
-    max-height: 28px;
+    min-height: 32px;
+    max-height: 32px;
     background: transparent;
 }
 QFrame#module-tabs-track {
@@ -2087,15 +2096,15 @@ QTabBar::tab,
 QTabWidget#module-tabs QTabBar::tab {
     background: transparent;
     color: __TEXT__;
-    padding: 4px 12px;
+    padding: 4px 14px;
     margin-right: 3px;
-    min-width: 88px;
-    min-height: 20px;
-    max-height: 26px;
+    min-width: 68px;
+    min-height: 21px;
+    max-height: 21px;
     border: 1px solid __BORDER__;
     border-bottom: none;
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
     font-weight: 600;
     font-size: 12px;
 }
@@ -2887,7 +2896,10 @@ QToolButton#responsive-more-btn, QToolButton#agent-attachment-btn {
     color: __TEXT__;
     border: 1px solid #DDD8EC;
     border-radius: 8px;
-    padding: 5px 10px;
+    min-height: 20px;
+    max-height: 20px;
+    padding: 3px 10px;
+    font-size: 12px;
     font-weight: 500;
 }
 QToolButton#responsive-more-btn:hover:enabled, QToolButton#agent-attachment-btn:hover:enabled {
@@ -2902,7 +2914,7 @@ QToolButton#responsive-more-btn:pressed:enabled, QToolButton#agent-attachment-bt
 }
 QToolButton#responsive-more-btn:focus:enabled, QToolButton#agent-attachment-btn:focus:enabled {
     border: 2px solid __FOCUS_RING__;
-    padding: 5px 9px;
+    padding: 2px 9px;
 }
 QToolButton#responsive-more-btn:disabled, QToolButton#agent-attachment-btn:disabled {
     color: __DISABLED_TEXT__;
@@ -3025,6 +3037,10 @@ QTabWidget#ops-term-tabs::pane {
     padding: 0;
     margin: 0;
 }
+QTabWidget#ops-term-tabs QTabBar {
+    min-height: 28px;
+    max-height: 28px;
+}
 QTabWidget#ops-term-tabs QTabBar::tab {
     background: __TERM_CHROME__;
     color: __TERM_MUTED__;
@@ -3035,8 +3051,8 @@ QTabWidget#ops-term-tabs QTabBar::tab {
     padding: 3px 10px;
     margin-right: 2px;
     min-width: 48px;
-    min-height: 18px;
-    max-height: 24px;
+    min-height: 20px;
+    max-height: 20px;
     font-weight: 600;
     font-size: 12px;
 }
@@ -3835,9 +3851,11 @@ QTabWidget#log-ai-tabs QTabBar::tab {
     color: __TEXT_MUTED__;
     border: 1px solid __BORDER__;
     border-bottom: none;
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-    padding: 6px 12px;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    min-height: 21px;
+    max-height: 21px;
+    padding: 4px 12px;
     margin-right: 4px;
     font-weight: 600;
 }

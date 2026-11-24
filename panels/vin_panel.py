@@ -32,8 +32,12 @@ class VinPanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        if self._embedded:
+            layout.setContentsMargins(4, 6, 4, 4)
+            layout.setSpacing(8)
+        else:
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(10)
         self.generate_btn = QPushButton()
         apply_button(self.generate_btn, 'primary', compact=True)
         self.generate_btn.clicked.connect(self._generate)

@@ -181,7 +181,7 @@ class SqlToolPanel(QWidget):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(SPACING_CARD)
-        layout.setContentsMargins(2, 4, 2, 2)
+        layout.setContentsMargins(4, 6, 4, 4)
 
         # 弱步骤条：选择日期 → 勾选事项 → 生成资料
         steps = QLabel('选择日期  →  勾选事项  →  生成资料')
@@ -611,7 +611,7 @@ class SqlToolPanel(QWidget):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(SPACING_CARD)
-        layout.setContentsMargins(2, 4, 2, 2)
+        layout.setContentsMargins(4, 6, 4, 4)
 
         # 三段：输入 / 预览 / 导出（去掉外层重复标题）
         # —— 输入 ——
@@ -858,7 +858,10 @@ class SqlToolPanel(QWidget):
     def _create_config_tab(self):
         tab = QWidget()
         outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4, 6, 4, 4)
+        outer.setSpacing(10)
         selector = QHBoxLayout()
+        selector.setSpacing(8)
         self.config_system_label = QLabel()
         self.system_label = self.config_system_label
         selector.addWidget(self.config_system_label)
@@ -870,8 +873,11 @@ class SqlToolPanel(QWidget):
         outer.addLayout(selector)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
         layout = QVBoxLayout(content)
+        layout.setContentsMargins(2, 2, 8, 6)
+        layout.setSpacing(10)
 
         self.identity_group = QGroupBox()
         identity_form = QFormLayout(self.identity_group)

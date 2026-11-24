@@ -456,10 +456,10 @@ svg.ic {
 .mode-bar {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  padding: 2px;
+  gap: 3px;
+  padding: 3px;
   margin: 0 2px 8px;
-  border-radius: 9px;
+  border-radius: 10px;
   background: rgba(242, 238, 252, 0.9);
   border: 1px solid rgba(212, 206, 230, 0.75);
 }

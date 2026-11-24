@@ -33,8 +33,8 @@ from ui.navigation_model import (
 
 
 HOME_NAV = 0
-MODULE_TABS_H = 38
-TAB_CLOSE_BUTTON_SIZE = 18
+MODULE_TABS_H = 42
+TAB_CLOSE_BUTTON_SIZE = 16
 
 
 @dataclass(frozen=True)
@@ -134,23 +134,28 @@ class ModuleTabs(QFrame):
         self._syncing = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 5, 14, 5)
+        # 左/右 16px 与下方 _page_body_layout 16px 严格处于同一铅垂对齐线；
+        # 上 4px + 轨道 34px + 下 3px + 1px 底边线 = 42px（上下各 4px 对称留白）
+        layout.setContentsMargins(16, 4, 16, 3)
         layout.setSpacing(0)
         self._layout = layout
 
         self._track = QFrame(self)
         self._track.setObjectName("module-tabs-track")
         self._track.setProperty("tabSurface", True)
+        self._track.setFixedHeight(34)
         self._track.setMinimumWidth(0)
         self._track.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         track_l = QHBoxLayout(self._track)
-        track_l.setContentsMargins(3, 2, 3, 2)
+        # 1px 轨道边线 + 3px 四周均匀内距 + 26px 标签胶囊 = 34px（上下左右均为精确 3px 净留白）
+        track_l.setContentsMargins(3, 3, 3, 3)
         track_l.setSpacing(0)
 
         self.tab_bar = _ModuleTabBar(self._track)
+        self.tab_bar.setIconSize(QSize(15, 15))
         self.tab_bar.setMinimumWidth(0)
         self.tab_bar.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        track_l.addWidget(self.tab_bar)
+        track_l.addWidget(self.tab_bar, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._track, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
         self.tab_bar.currentChanged.connect(self._on_current_changed)
@@ -524,27 +529,37 @@ class ModuleTabs(QFrame):
             QTabBar#module-tab-bar {
                 background: transparent;
                 border: none;
+                min-height: 26px;
+                max-height: 26px;
+                margin: 0px;
+                padding: 0px;
             }
             QTabBar#module-tab-bar::tab {
+                min-width: 0px;
                 min-height: 24px;
                 max-height: 24px;
-                padding: 0 6px 0 10px;
+                padding: 0 8px 0 9px;
                 margin: 0 2px 0 0;
                 color: %(muted)s;
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 7px;
+                font-size: 12px;
                 font-weight: 500;
+            }
+            QTabBar#module-tab-bar::tab:last,
+            QTabBar#module-tab-bar::tab:only-one {
+                margin-right: 0px;
             }
             QTabBar#module-tab-bar::tab:hover {
                 color: %(text)s;
-                background: rgba(255, 255, 255, 0.58);
+                background: rgba(255, 255, 255, 0.64);
                 border: 1px solid transparent;
             }
             QTabBar#module-tab-bar::tab:selected {
                 color: %(active)s;
                 background: #FFFFFF;
-                border: 1px solid rgba(108, 88, 217, 0.16);
+                border: 1px solid rgba(108, 88, 217, 0.22);
                 font-weight: 600;
             }
             QTabBar#module-tab-bar QToolButton {

@@ -403,7 +403,7 @@ function schedule(): void {
 
 .mode-pills {
   display: inline-flex;
-  padding: 2px;
+  padding: 3px;
   border-radius: 999px;
   background: var(--surface-soft);
   border: 1px solid var(--border);

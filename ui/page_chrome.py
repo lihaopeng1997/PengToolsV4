@@ -286,7 +286,7 @@ def make_page_toolbar(*, divided: bool = False) -> tuple[QFrame, QHBoxLayout]:
     if divided:
         frame.setProperty('divided', True)
     layout = QHBoxLayout(frame)
-    layout.setContentsMargins(0, 4, 0, 8)
+    layout.setContentsMargins(0, 6, 0, 6)
     layout.setSpacing(8)
     return frame, layout
 
