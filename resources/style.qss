@@ -2646,35 +2646,84 @@ QFrame#ops-list-card, QFrame#ops-param-card {
     border: 1px solid __BORDER__;
     border-radius: 12px;
 }
-QListWidget#ops-command-list,
+QListWidget#ops-command-list {
+    background: __SURFACE__;
+    border: none;
+    outline: 0;
+    show-decoration-selected: 0;
+}
+QListWidget#ops-command-list::item {
+    color: __TEXT_STRONG__;
+    border-bottom: 1px solid __SURFACE_SOFT__;
+    border-radius: 8px;
+    padding: 9px 10px;
+}
+QListWidget#ops-command-list::item:hover { background: __PRIMARY_SOFT__; }
+QListWidget#ops-command-list::item:selected,
+QListWidget#ops-command-list::item:selected:active,
+QListWidget#ops-command-list::item:selected:!active {
+    background: __TABLE_SELECT__;
+    color: __PRIMARY_ACTIVE__;
+    border-left: 3px solid __PRIMARY__;
+}
 QTreeWidget#ops-command-list {
     background: __SURFACE__;
     border: none;
     outline: 0;
     show-decoration-selected: 0;
 }
-QListWidget#ops-command-list::item,
-QTreeWidget#ops-command-list::item {
-    color: __TEXT_STRONG__;
-    border-bottom: 1px solid __SURFACE_SOFT__;
-    border-radius: 8px;
-    padding: 9px 10px;
+QTreeWidget#ops-command-list::branch,
+QTreeWidget#ops-command-list::branch:hover,
+QTreeWidget#ops-command-list::branch:selected {
+    background: __SURFACE__;
+    border: none;
 }
-QListWidget#ops-command-list::item:hover,
-QTreeWidget#ops-command-list::item:hover { background: __PRIMARY_SOFT__; }
-QListWidget#ops-command-list::item:selected,
-QListWidget#ops-command-list::item:selected:active,
-QListWidget#ops-command-list::item:selected:!active,
-QTreeWidget#ops-command-list::item:selected,
-QTreeWidget#ops-command-list::item:selected:active,
-QTreeWidget#ops-command-list::item:selected:!active {
-    background: __TABLE_SELECT__;
-    color: __PRIMARY_ACTIVE__;
-    border-left: 3px solid __PRIMARY__;
+QTreeWidget#ops-command-list::branch:has-children:!has-siblings:closed,
+QTreeWidget#ops-command-list::branch:closed:has-children:has-siblings {
+    border-image: none;
+    image: url("__BRANCH_CLOSED__");
+}
+QTreeWidget#ops-command-list::branch:open:has-children:!has-siblings,
+QTreeWidget#ops-command-list::branch:open:has-children:has-siblings {
+    border-image: none;
+    image: url("__BRANCH_OPEN__");
 }
 QTreeWidget#ops-command-list::branch:!has-children {
     image: none;
     border-image: none;
+}
+QTreeWidget#ops-command-list::item {
+    color: __TEXT__;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 7px 10px;
+    margin: 1px 4px 1px 0px;
+}
+QTreeWidget#ops-command-list::item:has-children {
+    background: transparent;
+    color: __TEXT_STRONG__;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin: 2px 4px 1px 0px;
+    font-weight: 700;
+}
+QTreeWidget#ops-command-list::item:has-children:hover {
+    background: __SURFACE_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QTreeWidget#ops-command-list::item:hover:!has-children {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+}
+QTreeWidget#ops-command-list::item:selected,
+QTreeWidget#ops-command-list::item:selected:active,
+QTreeWidget#ops-command-list::item:selected:!active {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 8px;
+    font-weight: 600;
 }
 QLabel#ops-title { color: __TEXT_STRONG__; font-size: __FONT_SIZE_PAGE_TITLE__; font-weight: __FONT_WEIGHT_PAGE_TITLE__; letter-spacing: -0.2px; }
 QLabel#ops-description {
@@ -3011,6 +3060,11 @@ QFrame#ops-term-card, QFrame#ops-result-card {
 QFrame#ops-term-shell {
     background: __TERM_CHROME__;
     border: 1px solid __TERM_BORDER__;
+    border-radius: 12px;
+}
+QFrame#ops-cmd-bar {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
     border-radius: 12px;
 }
 QLabel#ops-term-status-dot {

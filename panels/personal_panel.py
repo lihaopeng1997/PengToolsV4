@@ -1601,12 +1601,13 @@ class DailyReportTab(QWidget):
         self.date_tree.setHeaderHidden(True)
         self.date_tree.setRootIsDecorated(True)
         self.date_tree.setAnimated(True)
-        self.date_tree.setIndentation(12)
+        self.date_tree.setIndentation(10)
         self.date_tree.setItemsExpandable(True)
         self.date_tree.setExpandsOnDoubleClick(False)
         self.date_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.date_tree.customContextMenuRequested.connect(self._show_date_menu)
         self.date_tree.currentItemChanged.connect(self._select_history)
+        self.date_tree.itemClicked.connect(self._on_date_tree_clicked)
         self.date_tree.itemExpanded.connect(self._on_month_expand_changed)
         self.date_tree.itemCollapsed.connect(self._on_month_expand_changed)
         left_layout.addWidget(self.date_tree)
@@ -1954,6 +1955,7 @@ class DailyReportTab(QWidget):
             pin_header = QTreeWidgetItem([f'置顶  ·  {len(pinned_dates)}'])
             pin_header.setData(0, Qt.ItemDataRole.UserRole, '__pinned__')
             pin_header.setData(0, self._ROLE_KIND, 'pinned')
+            pin_header.setFlags(Qt.ItemFlag.ItemIsEnabled)
             font = pin_header.font(0)
             font.setBold(True)
             pin_header.setFont(0, font)
@@ -1977,6 +1979,7 @@ class DailyReportTab(QWidget):
             header = QTreeWidgetItem([header_text])
             header.setData(0, Qt.ItemDataRole.UserRole, mk)
             header.setData(0, self._ROLE_KIND, 'month')
+            header.setFlags(Qt.ItemFlag.ItemIsEnabled)
             font = header.font(0)
             font.setBold(True)
             header.setFont(0, font)
@@ -2000,6 +2003,12 @@ class DailyReportTab(QWidget):
         if selected is not None:
             self.date_tree.setCurrentItem(selected)
         self.date_tree.blockSignals(False)
+
+    def _on_date_tree_clicked(self, item, _column=0):
+        if item is None or self._loading:
+            return
+        if item.data(0, self._ROLE_KIND) in ('month', 'pinned'):
+            item.setExpanded(not item.isExpanded())
 
     def _on_month_expand_changed(self, item):
         if item is None or self._loading:

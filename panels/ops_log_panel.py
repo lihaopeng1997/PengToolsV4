@@ -1603,13 +1603,8 @@ class OpsLogPanel(QWidget):
             return ''
 
     def _refresh_linux_query_buttons(self):
-        try:
-            from tools.intranet_llm import is_enabled
-            ready = is_enabled()
-        except Exception:
-            ready = False
         if hasattr(self, 'nl_query_btn'):
-            self.nl_query_btn.setEnabled(ready and not getattr(self, '_query_generating', False))
+            self.nl_query_btn.setEnabled(not getattr(self, '_query_generating', False))
         self._refresh_exec_query_button()
 
     def _refresh_exec_query_button(self, *_args):
@@ -1622,7 +1617,16 @@ class OpsLogPanel(QWidget):
         term = self._current_terminal()
         if term is not None:
             connected = bool(getattr(term, 'shell_alive', False))
-        self.exec_query_btn.setEnabled(bool(ok and connected and not getattr(self, '_query_wait_term', None)))
+        waiting = bool(getattr(self, '_query_wait_term', None))
+        has_ai_cmds = bool(getattr(self, '_harness_allowed_cmds', None)) and bool(text)
+        can_exec = bool(ok and connected and not waiting)
+        self.exec_query_btn.setEnabled(can_exec)
+        self.exec_query_btn.setVisible(bool(can_exec or waiting or has_ai_cmds))
+
+    def _set_last_fill_cmd(self, cmd: str):
+        self._last_fill_cmd = (cmd or '').strip()
+        if hasattr(self, 'cmd_fill_terminal_btn') and self.cmd_fill_terminal_btn is not None:
+            self.cmd_fill_terminal_btn.setVisible(bool(self._last_fill_cmd))
 
     def _generate_linux_query(self):
         if getattr(self, '_query_generating', False):
@@ -1653,7 +1657,7 @@ class OpsLogPanel(QWidget):
     def _finish_query_generation(self):
         self._query_generating = False
         set_button_busy(self.nl_query_btn, False)
-        self.nl_query_btn.setText('生成查询' if self.language == 'zh' else 'NL query')
+        self.nl_query_btn.setText('AI 生成' if self.language == 'zh' else 'NL query')
         self._refresh_linux_query_buttons()
 
     def _on_linux_query_ok(self, payload):
@@ -2465,28 +2469,35 @@ class OpsLogPanel(QWidget):
         self._last_fill_cmd = ''
         self.terminal = self._create_terminal_tab('会话 1 · 未连接')
         term_shell_l.addWidget(self.term_tabs, 1)
-        # 命令栏贴在控制台底部，连上后和提示符同一侧，不再隔着整块终端。
-        cmd_row = QHBoxLayout()
+        session_l.addWidget(self.term_shell, 1)
+
+        # 命令栏独立置于终端下方浅色卡片中，避免深色背景导致次级按钮文字不可辨认
+        self.cmd_bar = QFrame()
+        self.cmd_bar.setObjectName('ops-cmd-bar')
+        cmd_row = QHBoxLayout(self.cmd_bar)
+        cmd_row.setContentsMargins(10, 8, 10, 8)
         cmd_row.setSpacing(8)
         self.cmd_input = QLineEdit()
-        size_line(self.cmd_input, 'std')
-        self.cmd_input.setPlaceholderText('输入命令后点「执行到当前终端」，或打开历史…')
+        self.cmd_input.setObjectName('ops-cmd-input')
+        size_line(self.cmd_input, 'compact')
+        self.cmd_input.setClearButtonEnabled(True)
+        self.cmd_input.setPlaceholderText('输入 Linux 命令回车执行，或输入中文点「AI 生成」…')
         self.cmd_input.returnPressed.connect(self._send_cmd_bar)
         # 兼容旧名
         self.cmd_history_combo = QComboBox()
         self.cmd_history_combo.hide()
-        # 「执行到当前终端」只保留输入框旁这一个（页头不再重复），作为会话模式唯一主按钮
         self.cmd_send_bottom_btn = QPushButton()
-        apply_button(self.cmd_send_bottom_btn, 'primary', compact=True)
+        apply_button(self.cmd_send_bottom_btn, 'primary', compact=True, icon='terminal', icon_size=14)
         self.cmd_send_bottom_btn.clicked.connect(self._send_cmd_bar)
         self.cmd_fill_terminal_btn = QPushButton()
         apply_button(self.cmd_fill_terminal_btn, 'secondary', compact=True)
         self.cmd_fill_terminal_btn.clicked.connect(self._fill_terminal_from_last_cmd)
+        self.cmd_fill_terminal_btn.hide()
         self.cmd_fill_btn = QPushButton()  # 「历史」
-        apply_button(self.cmd_fill_btn, 'ghost', compact=True)
+        apply_button(self.cmd_fill_btn, 'secondary', compact=True)
         self.cmd_fill_btn.clicked.connect(self._open_cmd_history_dialog)
         self.nl_query_btn = QPushButton()
-        apply_button(self.nl_query_btn, 'secondary', compact=True)
+        apply_button(self.nl_query_btn, 'fold', compact=True, icon='workbench', icon_size=14)
         self.nl_query_btn.clicked.connect(self._generate_linux_query)
         self._query_wait_term = None
         self._query_wait_timer = QTimer(self)
@@ -2497,6 +2508,7 @@ class OpsLogPanel(QWidget):
         apply_button(self.exec_query_btn, 'secondary', compact=True)
         self.exec_query_btn.clicked.connect(self._execute_linux_query)
         self.exec_query_btn.setEnabled(False)
+        self.exec_query_btn.hide()
         self.cmd_input.textChanged.connect(self._refresh_exec_query_button)
         cmd_row.addWidget(self.cmd_input, 1)
         cmd_row.addWidget(self.nl_query_btn)
@@ -2504,8 +2516,7 @@ class OpsLogPanel(QWidget):
         cmd_row.addWidget(self.cmd_fill_terminal_btn)
         cmd_row.addWidget(self.cmd_fill_btn)
         cmd_row.addWidget(self.cmd_send_bottom_btn)
-        term_shell_l.addLayout(cmd_row)
-        session_l.addWidget(self.term_shell, 1)
+        session_l.addWidget(self.cmd_bar)
         self._reload_cmd_history()
         self._rebuild_more_menu()
         self._refresh_header_session_status()
@@ -3135,9 +3146,9 @@ class OpsLogPanel(QWidget):
                     connected = bool(s.get('client') and s.get('connected'))
                 self._apply_tab_chrome(i, connected=connected)
         if hasattr(self, 'nl_query_btn'):
-            self.nl_query_btn.setText('生成查询' if zh else 'NL query')
+            self.nl_query_btn.setText('AI 生成' if zh else 'NL query')
             self.nl_query_btn.setToolTip(
-                '把中文排查意图转成只读 Linux 命令，禁止删除/重启' if zh else 'Natural language to read-only Linux commands'
+                '把中文排查意图转成只读 Linux 命令（禁止删除/重启）' if zh else 'Natural language to read-only Linux commands'
             )
             self.exec_query_btn.setText('执行查询' if zh else 'Run query')
             self.exec_query_btn.setToolTip(
@@ -3146,7 +3157,7 @@ class OpsLogPanel(QWidget):
             self._refresh_linux_query_buttons()
         if hasattr(self, 'cmd_input'):
             self.cmd_input.setPlaceholderText(
-                '中文排查意图或 Linux 命令…' if zh else 'Chinese intent or Linux command…'
+                '输入 Linux 命令回车执行，或输入中文点「AI 生成」…' if zh else 'Enter Linux command to run, or Chinese intent for AI query…'
             )
         self._update_connect_button_text()
 
@@ -3711,7 +3722,7 @@ class OpsLogPanel(QWidget):
             self.log_workspaces.setCurrentIndex(0)
         if hasattr(self, '_set_work_mode'):
             self._set_work_mode('session', persist=False)
-        self._last_fill_cmd = cmd
+        self._set_last_fill_cmd(cmd)
         self._set_cmd_bar_text(cmd)
         zh = self.language == 'zh'
         if hasattr(self, 'toolbar_hint') and self.toolbar_hint is not None:
@@ -4302,7 +4313,7 @@ class OpsLogPanel(QWidget):
                 context_lines=int(cap.get('context_lines') or 20),
                 case_insensitive=bool(cap.get('case_insensitive', True)),
             )
-            self._last_fill_cmd = cmd
+            self._set_last_fill_cmd(cmd)
             self._console_append(f'[预览] {cmd}')
             term = self._current_terminal()
             if term is not None:
@@ -4333,7 +4344,7 @@ class OpsLogPanel(QWidget):
         except OpsSshError as exc:
             show_warning(self, 'PengTools', str(exc))
             return
-        self._last_fill_cmd = cmd
+        self._set_last_fill_cmd(cmd)
         term.setFocus()
         # 打进当前会话，不要误写到第一个标签页
         term.send_command_line(cmd)
@@ -4354,7 +4365,7 @@ class OpsLogPanel(QWidget):
         import shlex
         # 默认看尾部；若需要实时跟踪可在终端手输 tail -f
         cmd = f'tail -n {int(n)} -- {shlex.quote(path)}'
-        self._last_fill_cmd = cmd
+        self._set_last_fill_cmd(cmd)
         term.setFocus()
         term.send_command_line(cmd)
 
