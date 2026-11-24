@@ -12,6 +12,7 @@ from config import CUSTOM_OPS_FILE, ensure_config_dir
 CATEGORIES = {
     'all': ('全部命令', 'All commands'),
     'logs': ('日志查询', 'Logs'),
+    'java': ('Java / JVM 排查', 'Java & JVM'),
     'status': ('服务器运行状态', 'Server status'),
     'process': ('进程诊断', 'Processes'),
     'network': ('网络排查', 'Network'),
@@ -94,6 +95,36 @@ COMMANDS = [
     _cmd('dmesg -T | tail -n 200', 'logs', '查看内核近期日志', '读取内核环形缓冲区并转换时间，常用于磁盘、网卡、OOM 和驱动故障。', 'Recent kernel messages', 'Read recent timestamped kernel messages for hardware and OOM issues.'),
     _cmd("grep -E 'Out of memory|Killed process' /var/log/messages", 'logs', '定位 OOM 记录', '在系统日志中定位内存不足和内核杀进程记录。', 'Locate OOM records', 'Find out-of-memory and killed-process records.',
          'grep -n -i -E {keyword} {log_path}', [_param('keyword', '匹配规则', 'Pattern', 'Out of memory|Killed process'), _param('log_path', '系统日志路径', 'System log', '/var/log/messages')]),
+    _cmd("awk '/08:00/,/08:30/' app.log", 'logs', '按时间段截取日志区间', '提取起止时间标记之间的日志片段，高频用于复现某个故障窗口。', 'Extract log by time range', 'Extract lines between start and end time markers.',
+         "awk '$0 >= {start_ts} && $0 <= {end_ts}' {log_path} | head -n {limit}", [
+             _param('start_ts', '起始时间前缀', 'Start prefix', '2026-11-24 08:00'),
+             _param('end_ts', '结束时间前缀', 'End prefix', '2026-11-24 08:30'),
+             _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log'),
+             _param('limit', '最多输出行数', 'Max lines', '500', 'int'),
+         ], tags='日志 时间段 区间 故障窗口'),
+    _cmd("grep -i 'ERROR' app.log | cut -c1-16 | uniq -c", 'logs', '按分钟统计报错峰值', '统计每分钟命中报错的次数，快速锁定异常爆发的时间点。', 'Count errors per minute', 'Count keyword hits per minute to pinpoint incident spikes.',
+         'grep -i -- {keyword} {log_path} | cut -c1-16 | uniq -c | tail -n {limit}', [
+             _param('keyword', '报错关键词', 'Keyword', 'ERROR'),
+             _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log'),
+             _param('limit', '显示最近分钟数', 'Recent minutes', '30', 'int'),
+         ], tags='报错 峰值 分钟 统计 趋势'),
+    _cmd("grep -c -i 'ERROR' app.log", 'logs', '统计关键词命中总数', '快速统计某错误码或关键字在日志里总共出现了多少次。', 'Count keyword occurrences', 'Count total matching lines for a keyword.',
+         'grep -c -i -- {keyword} {log_path}', [_param('keyword', '关键词', 'Keyword', 'ERROR'), _param('log_path', '日志路径', 'Log path', '/var/log/app/app.log')], tags='统计 次数 count'),
+
+    # Java / JVM 排查
+    _cmd('jps -lvm', 'java', '列出全部 Java 进程与 JVM 参数', '查看运行中的 Java PID、主类/JAR 路径和完整启动参数（堆内存/GC 等）。', 'List Java processes & JVM args', 'List Java PIDs, main classes/JARs, and JVM flags.', tags='java jvm pid 启动参数 spring'),
+    _cmd('jstat -gcutil 1234 1000 10', 'java', '实时监控 JVM GC 与各代内存占比', '每秒采样老年代(O)、新生代(E/S)、元空间(M)占用率以及 YGC/FGC 次数和耗时。', 'Monitor JVM GC utilization', 'Sample Eden/Old/Metaspace utilization and GC counts/times.',
+         'jstat -gcutil {pid} {interval_ms} {count}', [_param('pid', 'Java 进程 PID', 'Java PID', '1234', 'int'), _param('interval_ms', '间隔毫秒', 'Interval ms', '1000', 'int'), _param('count', '采样次数', 'Count', '10', 'int')], tags='java jvm gc fullgc 内存泄漏'),
+    _cmd("jstack -l 1234 | grep -E 'deadlock|BLOCKED' -A 15", 'java', '排查 Java 死锁与阻塞线程', '导出线程栈并筛选死锁或 BLOCKED 状态线程及锁信息，适合接口卡死排查。', 'Inspect Java deadlocks & blocked threads', 'Dump thread stack and filter deadlock or BLOCKED threads.',
+         "jstack -l {pid} | grep -E 'deadlock|BLOCKED' -A {lines}", [_param('pid', 'Java 进程 PID', 'Java PID', '1234', 'int'), _param('lines', '上下文行数', 'Context lines', '15', 'int')], tags='java 线程 死锁 卡顿 blocked'),
+    _cmd('top -Hp 1234', 'java', '定位 Java 进程内高 CPU 线程', '查看单个 Java 进程内最耗 CPU 的线程 TID；随后用 printf "%x\\n" <TID> 转十六进制去 jstack 中定位代码行。', 'Find high-CPU Java threads', 'Inspect per-thread CPU inside a Java PID; convert TID to hex for jstack.',
+         'top -Hp {pid}', [_param('pid', 'Java 进程 PID', 'Java PID', '1234', 'int')], tags='java cpu 线程飙高 tid 16进制'),
+    _cmd('jinfo -flags 1234', 'java', '查看 JVM 实际生效参数', '输出运行中 JVM 的堆内存、GC 收集器及所有生效参数，核对线上配置是否生效。', 'Inspect active JVM flags', 'Print effective JVM runtime flags for a running PID.',
+         'jinfo -flags {pid}', [_param('pid', 'Java 进程 PID', 'Java PID', '1234', 'int')], tags='java jvm 参数 xmx xms'),
+    _cmd('jmap -histo:live 1234 | head -n 30', 'java', '查看堆内 Top 30 对象（慎用）', '统计存活对象数量与占用字节，排查内存泄漏。注意：live 选项会触发一次 Full GC，生产高峰请先评估停顿影响！', 'Top 30 live heap objects (caution)', 'Summarize top live heap classes; note :live triggers a Full GC.',
+         'jmap -histo:live {pid} | head -n {limit}', [_param('pid', 'Java 进程 PID', 'Java PID', '1234', 'int'), _param('limit', '显示前 N 行', 'Top rows', '30', 'int')], risk='caution', tags='java 堆内存 对象 泄漏 oom'),
+    _cmd('jmap -heap 1234', 'java', '查看 JVM 堆内存分区摘要', '只读查看 JVM 堆参数配置和新生代/老年代当前使用摘要（JDK8 常用，高版本可用 jhsdb jmap）。', 'JVM heap summary', 'Show JVM heap configuration and generation usage summary.',
+         'jmap -heap {pid}', [_param('pid', 'Java 进程 PID', 'Java PID', '1234', 'int')], risk='caution', tags='java heap 堆 新生代 老年代'),
 
     # 服务器状态与性能
     _cmd('uptime', 'status', '运行时长与负载', '显示系统运行时长、登录用户数以及 1/5/15 分钟平均负载。', 'Uptime and load', 'Show uptime and 1/5/15-minute load averages.'),
@@ -132,6 +163,11 @@ COMMANDS = [
     _cmd('ss -lntp', 'network', '查看 TCP 监听端口', '显示监听中的 TCP 端口、地址和关联进程。', 'TCP listening ports', 'Show listening TCP sockets and owning processes.'),
     _cmd('ss -antp', 'network', '查看全部 TCP 连接', '显示 TCP 连接状态、远端地址和关联进程。', 'All TCP connections', 'Show TCP states, remote addresses and processes.'),
     _cmd('ss -s', 'network', '网络连接统计摘要', '快速查看 TCP/UDP 连接数量和状态汇总。', 'Socket summary', 'Show summarized TCP and UDP socket counts.'),
+    _cmd("ss -tan | awk 'NR>1{s[$1]++} END{for(k in s) print k, s[k]}'", 'network', '按状态统计 TCP 连接分布', '快速统计 ESTABLISHED / TIME_WAIT / CLOSE_WAIT 数量，定位连接泄漏或端口耗尽。', 'TCP connections by state', 'Aggregate TCP socket counts by state (TIME_WAIT, CLOSE_WAIT, etc.).',
+         "ss -tan | awk 'NR>1{{s[$1]++}} END{{for(k in s) print k, s[k]}}' | sort -k2 -nr", tags='tcp time_wait close_wait 连接数 泄漏'),
+    _cmd("curl -s -o /dev/null -w 'dns/connect/ttfb/total'", 'network', '拆解 HTTP 各阶段耗时', '测量 DNS 解析、TCP 建连、首包响应(TTFB)与总耗时，快速定位接口变慢究竟卡在网络还是后端。', 'Measure HTTP phase latency', 'Break down DNS, connect, TTFB, and total latency for an endpoint.',
+         "curl -k -s -o /dev/null --connect-timeout {timeout} -w 'code:%{{http_code}} dns:%{{time_namelookup}}s connect:%{{time_connect}}s tls:%{{time_appconnect}}s ttfb:%{{time_starttransfer}}s total:%{{time_total}}s\\n' {url}",
+         [_param('timeout', '超时秒数', 'Timeout seconds', '10', 'int'), _param('url', '目标 URL', 'Target URL', 'https://example.com')], risk='caution', tags='http 耗时 ttfb 慢接口 延迟'),
     _cmd('lsof -i :8080', 'network', '定位端口占用进程', '按端口查找监听或连接该端口的进程。', 'Find process using a port', 'Find the process listening on or connected to a port.',
          'lsof -nP -i :{port}', [_param('port', '端口', 'Port', '8080', 'int')]),
     _cmd('ip addr show', 'network', '查看网卡和 IP', '显示所有网卡状态、IPv4/IPv6 地址和掩码。', 'Interfaces and IP addresses', 'Show interface state and IPv4/IPv6 addresses.'),
@@ -155,6 +191,9 @@ COMMANDS = [
     # 磁盘与文件只读检查
     _cmd('df -hT', 'disk', '文件系统空间使用率', '显示挂载点、文件系统类型、容量和使用率。', 'Filesystem usage', 'Show filesystem type, capacity and usage.'),
     _cmd('df -ih', 'disk', 'inode 使用率', '检查 inode 是否耗尽；磁盘有空间但无法创建文件时重点查看。', 'Inode usage', 'Check inode exhaustion when file creation fails despite free space.'),
+    _cmd('lsof +L1', 'disk', '查找已删除但未释放空间的大文件', '磁盘 df 显示已满但 du 找不到大文件时，用此命令定位仍被进程句柄占用的已删文件（常见于直接 rm 正在写的日志）。', 'Find deleted files still held open', 'Locate unlinked files still held open by running processes consuming disk space.', tags='磁盘满 deleted 幽灵文件 空间未释放'),
+    _cmd('ls -lhS /var/log | head -n 20', 'disk', '按体积排行查看目录大文件', '按文件大小倒序查看指定目录下最大的前若干个文件。', 'Largest files in a directory', 'List the largest files in a directory in human-readable sizes.',
+         'ls -lhS {path} | head -n {limit}', [_param('path', '目录路径', 'Directory', '/var/log'), _param('limit', '显示条数', 'Count', '20', 'int')], tags='大文件 磁盘 排序'),
     _cmd('du -xh --max-depth=1 /var | sort -h', 'disk', '统计目录占用', '统计指定目录下一层的磁盘占用并按大小排序，可能对大目录产生 IO。', 'Directory sizes', 'Summarize one directory level and sort by size; may cause IO.',
          'du -xh --max-depth={depth} {path} 2>/dev/null | sort -h | tail -n {limit}', [_param('depth', '目录深度', 'Depth', '1', 'int'), _param('path', '目录路径', 'Directory', '/var'), _param('limit', '显示数量', 'Result count', '30', 'int')], risk='caution'),
     _cmd('lsblk -f', 'disk', '查看块设备和文件系统', '显示磁盘、分区、文件系统、UUID 和挂载点。', 'Block devices', 'Show disks, partitions, filesystems, UUIDs and mount points.'),
@@ -422,12 +461,19 @@ def output_guide(command, language='zh'):
         (r'^kubectl (logs|top|events|get events)', 'logs 为容器标准输出；top 展示 CPU/内存；events 展示类型、原因、对象、次数和消息。无输出需核对命名空间、Pod/容器名和权限。', 'logs is container output; top shows CPU/memory; events show type, reason, object, count and message. Verify namespace, names and permissions if empty.'),
         (r'^openssl x509', '重点字段：Subject=证书主体；Issuer=签发者；Not Before/After=有效期；Public Key=公钥；X509v3 SAN=适用域名。', 'Key fields: Subject; Issuer; Not Before/After; Public Key; X509v3 SAN hostnames.'),
         (r'^openssl s_client', 'CONNECTED 表示 TCP 成功；Certificate chain 是证书链；Verify return code=0 通常表示校验成功；还需检查协议、套件、SNI 和有效期。', 'CONNECTED means TCP success; Certificate chain lists chain; Verify return code=0 usually succeeds. Check protocol, cipher, SNI and validity.'),
+        (r'^jps ', '首列是 Java PID，后续是主类或 JAR 名及 -Xms/-Xmx 等 JVM 启动参数；拿到 PID 后可配合 jstat / jstack 继续排查。', 'First column is Java PID followed by main class/JAR and JVM flags.'),
+        (r'^jstat ', 'S0/S1/E/O/M 分别为幸存代/伊甸代/老年代/元空间占比(%)；YGC/YGCT 为年轻代 GC 次数和秒数；FGC/FGCT 为 Full GC 次数和秒数。老年代 O 持续接近 100% 且 FGC 频繁说明可能内存不足或泄漏。', 'E/O/M are Eden/Old/Metaspace %; YGC/FGC and YGCT/FGCT track GC counts and duration.'),
+        (r'^jstack ', '重点看线程状态（BLOCKED/WAITING）、waiting to lock 和 locked 的锁地址；若有 Found one Java-level deadlock 即已发生死锁。', 'Focus on BLOCKED threads, lock addresses, and deadlock summaries.'),
+        (r'^top -hp', '拿到最耗 CPU 线程的 PID(即 TID)，执行 printf "%x\\n" <TID> 转十六进制，再去 jstack 输出里搜索 nid=0x<十六进制> 即可精确定位业务代码行。', 'Convert the busiest TID to hex via printf "%x\\n" <TID> and search nid=0x... in jstack.'),
+        (r'^jmap ', 'instances=对象实例数，bytes=占用字节数，class name=类名（[B 为字节数组，[C 为字符数组）；排查内存泄漏重点盯业务包名前几名。', 'Shows instance counts, bytes, and class names; focus on top classes from your app package.'),
+        (r'^lsof \+l1', 'SIZE/OFF 列为未释放体积，NAME 末尾带 (deleted) 表示文件已被删除但对应 PID 仍持有句柄；需重启或 reload 对应进程释放空间。', 'Rows marked (deleted) are still held open by the listed PID and consume disk until closed/reloaded.'),
     ]
     for pattern, zh, en in guides:
         if re.search(pattern, text):
             return zh if language == 'zh' else en
     defaults = {
         'logs': ('输出通常由时间、来源和消息组成；先确认时间范围，再结合上下文和同一请求标识判断。', 'Output usually contains time, source and message. Confirm time range and correlate context/request IDs.'),
+        'java': ('建议按「jps 找 PID → jstat 看 GC → top -Hp / jstack 查线程」顺序排查，高负载生产慎用触发 Full GC 的命令。', 'Follow jps -> jstat -> top -Hp/jstack; avoid Full-GC commands during peak production load.'),
         'status': ('重点比较当前值、趋势和系统容量基线，单个瞬时数值不能直接判定故障。', 'Compare current values and trends with system capacity; one snapshot alone does not prove a fault.'),
         'process': ('先确认 PID、用户、父子关系和完整命令，再结合 CPU、内存及日志判断。', 'Verify PID, owner, parent relationship and full command, then correlate resources and logs.'),
         'network': ('重点查看状态、端点、丢包、延迟和错误；无输出也可能是权限、协议或筛选条件问题。', 'Inspect state, endpoints, loss, latency and errors. Empty output may be permission, protocol or filter related.'),

@@ -757,6 +757,8 @@ class MainWindow(QMainWindow):
             return self.ops_panel
         from panels.ops_panel import OpsPanel
         panel = OpsPanel(self.language)
+        panel.send_to_ops_log.connect(self._send_ops_command_to_log)
+        panel.open_ai_log_workspace.connect(self._open_ops_command_in_ai_log)
         self._mount_panel(6, panel)
         self.ops_panel = panel
         self._apply_panel_chrome(panel)
@@ -766,6 +768,30 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         return panel
+
+    def _send_ops_command_to_log(self, command: str):
+        panel = self._ensure_ops_log_panel()
+        self._show_panel(12)
+        if hasattr(panel, 'receive_command_from_library'):
+            panel.receive_command_from_library(command)
+        self.status_bar.showMessage(
+            '已填入「日志排查」终端命令栏（未自动执行，核对后回车运行）'
+            if self.language == 'zh' else
+            'Filled into Log Investigation terminal input (review before running)',
+            5000,
+        )
+
+    def _open_ops_command_in_ai_log(self, prompt: str):
+        panel = self._ensure_ops_log_panel()
+        self._show_panel(12)
+        if hasattr(panel, 'open_ai_workspace_with_prompt'):
+            panel.open_ai_workspace_with_prompt(prompt)
+        self.status_bar.showMessage(
+            '已切换到「AI 日志与系统排查」并带入当前命令上下文'
+            if self.language == 'zh' else
+            'Opened AI Log Investigation with command context',
+            4500,
+        )
 
     def _ensure_settings_panel(self):
         if self.settings_panel is not None:

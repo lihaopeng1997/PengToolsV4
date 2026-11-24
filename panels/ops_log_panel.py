@@ -3694,6 +3694,43 @@ class OpsLogPanel(QWidget):
         if hasattr(self, 'cmd_input'):
             self.cmd_input.setFocus()
 
+    def receive_command_from_library(self, command: str) -> bool:
+        """接收来自「命令库」的命令并填入终端命令栏（绝不自动执行）。"""
+        raw = str(command or '').strip()
+        if not raw:
+            return False
+        lines = [ln.strip() for ln in raw.splitlines() if ln.strip() and not ln.strip().startswith('#')]
+        cmd = ' && '.join(lines) if len(lines) <= 2 else (lines[0] if lines else raw)
+        if hasattr(self, 'log_workspaces'):
+            self.log_workspaces.setCurrentIndex(0)
+        if hasattr(self, '_set_work_mode'):
+            self._set_work_mode('session', persist=False)
+        self._last_fill_cmd = cmd
+        self._set_cmd_bar_text(cmd)
+        zh = self.language == 'zh'
+        if hasattr(self, 'toolbar_hint') and self.toolbar_hint is not None:
+            self.toolbar_hint.setText(
+                '已从命令库填入命令（未自动执行），请核对目标主机与参数后按回车执行'
+                if zh else
+                'Command filled from library (not executed yet); review host & params before running.'
+            )
+        return True
+
+    def open_ai_workspace_with_prompt(self, prompt: str = '') -> bool:
+        """切换到「AI 日志与系统排查」并预填问题上下文（不自动发送）。"""
+        if hasattr(self, 'log_workspaces'):
+            self.log_workspaces.setCurrentIndex(1)
+        if getattr(self, 'log_analysis_workspace', None) is None:
+            self._open_log_analysis(1)
+        ws = getattr(self, 'log_analysis_workspace', None)
+        if ws is None:
+            return False
+        text = str(prompt or '').strip()
+        if text and hasattr(ws, 'input') and ws.input is not None:
+            ws.input.setPlainText(text)
+            ws.input.setFocus()
+        return True
+
     def _disconnect_session(self):
         """只断开当前标签，不影响其它会话标签。"""
         zh = self.language == 'zh'

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from PyQt6.QtCore import QStringListModel, Qt, QTimer
+import re
+
+from PyQt6.QtCore import QStringListModel, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
@@ -15,8 +17,56 @@ from tools.ops_commands import (
 from ui.confirm_dialog import confirm_action, show_error, show_warning
 from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import apply_form, size_combo, size_line
+from ui.guided_tour import make_guide_button, start_guided_tour
 from ui.motion import play_dialog_enter
 from ui.splitter_prefs import install_splitter_prefs
+
+
+class _OpsCommandAiWorker(QThread):
+    """后台调用已配置的内网模型，用于生成只读排查命令或解释当前命令。"""
+
+    finished_ok = pyqtSignal(str, str)  # (mode, content)
+    failed = pyqtSignal(str, str)  # (mode, error)
+
+    def __init__(self, mode: str, prompt: str, model_id: str, language: str = 'zh', parent=None):
+        super().__init__(parent)
+        self._mode = mode
+        self._prompt = prompt
+        self._model_id = model_id
+        self._language = language
+
+    def run(self):
+        try:
+            from tools.intranet_llm import chat_completions
+            zh = self._language == 'zh'
+            if self._mode == 'generate':
+                system_msg = (
+                    '你是资深 Linux 运维与 Java 线上排查专家。请根据用户描述给出最精准的一条安全只读 Linux 命令。'
+                    '严禁输出任何删除/破坏性命令（如 rm、rmdir、unlink、shred、find -delete、mkfs、dd）。'
+                    '请按以下格式简洁输出：\n'
+                    '```bash\n<单行或可直接执行的命令>\n```\n'
+                    '参数说明：简短列出需替换的占位符（如 PID、端口、日志路径）。\n'
+                    '排查思路：1-2 句说明输出怎么看。'
+                    if zh else
+                    'You are a senior Linux & JVM operations engineer. Return ONE safe, read-only Linux command inside ```bash ... ``` '
+                    '(never output rm/rmdir/unlink/shred/find -delete), followed by concise parameter and output tips.'
+                )
+            else:
+                system_msg = (
+                    '你是资深 Linux 运维助手。请用通俗中文分点解释用户给出的 Linux 命令：'
+                    '1）每个参数和管道段的作用；2）典型输出怎么看；3）在生产环境执行时的安全注意事项（是否只读、有无性能影响）。'
+                    '回答控制在 8 行以内，简洁实用。'
+                    if zh else
+                    'Explain the given Linux command concisely: flags/pipes, how to read output, and production safety notes.'
+                )
+            messages = [
+                {'role': 'system', 'content': system_msg},
+                {'role': 'user', 'content': self._prompt},
+            ]
+            text = chat_completions(messages, model_config_id=self._model_id or None)
+            self.finished_ok.emit(self._mode, str(text or '').strip())
+        except Exception as exc:
+            self.failed.emit(self._mode, str(exc))
 
 
 class CustomCommandDialog(QDialog):
@@ -108,6 +158,9 @@ class CustomCommandDialog(QDialog):
 
 
 class OpsPanel(QWidget):
+    send_to_ops_log = pyqtSignal(str)
+    open_ai_log_workspace = pyqtSignal(str)
+
     def __init__(self, language='zh'):
         super().__init__()
         self.language = language
@@ -115,12 +168,15 @@ class OpsPanel(QWidget):
         self._commands = []
         self._current_command = None
         self._param_edits = {}
+        self._ai_worker = None
+        self._ai_extracted_cmd = ''
         self._copy_feedback_duration = 1500
         self._copy_feedback_timer = QTimer(self)
         self._copy_feedback_timer.setSingleShot(True)
         self._copy_feedback_timer.timeout.connect(self._restore_copy_button_text)
         self._setup_ui()
         self.set_language(language)
+        self._reload_ai_models()
         self._refresh_results()
 
     def _setup_ui(self):
@@ -170,6 +226,8 @@ class OpsPanel(QWidget):
         except Exception:
             pass
         header.addWidget(self.add_btn)
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, self)
+        header.addWidget(self.guide_btn)
         root.addLayout(header)
 
         self.safety_note = QLabel()
@@ -278,6 +336,80 @@ class OpsPanel(QWidget):
         self.output_explanation.setWordWrap(True)
         self.output_explanation.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         detail.addWidget(self.output_explanation)
+
+        # AI 命令助手卡片（按需调用内网模型生成只读排查命令或解释当前命令，与日志排查联动）
+        self.ai_card = QFrame()
+        self.ai_card.setObjectName('ops-ai-card')
+        self.ai_card.setStyleSheet(
+            'QFrame#ops-ai-card { background: #F7F5FD; border: 1px solid #DFD9F0; border-radius: 12px; }'
+        )
+        ai_l = QVBoxLayout(self.ai_card)
+        ai_l.setContentsMargins(12, 10, 12, 10)
+        ai_l.setSpacing(8)
+        ai_head = QHBoxLayout()
+        ai_head.setSpacing(8)
+        self.ai_card_title = QLabel('AI 命令助手')
+        self.ai_card_title.setStyleSheet('color: #262438; font-weight: 700; font-size: 13px; background: transparent;')
+        ai_head.addWidget(self.ai_card_title)
+        self.ai_model_combo = QComboBox()
+        size_combo(self.ai_model_combo, 'md')
+        self.ai_model_combo.setMinimumWidth(160)
+        ai_head.addWidget(self.ai_model_combo)
+        self.ai_refresh_models_btn = QPushButton('刷新模型')
+        self.ai_refresh_models_btn.clicked.connect(self._reload_ai_models)
+        ai_head.addWidget(self.ai_refresh_models_btn)
+        ai_head.addStretch(1)
+        self.ai_explain_btn = QPushButton('AI 解释当前命令')
+        self.ai_explain_btn.clicked.connect(self._ask_ai_explain)
+        ai_head.addWidget(self.ai_explain_btn)
+        ai_l.addLayout(ai_head)
+
+        ai_input_row = QHBoxLayout()
+        ai_input_row.setSpacing(6)
+        self.ai_prompt_edit = QLineEdit()
+        size_line(self.ai_prompt_edit, 'std')
+        self.ai_prompt_edit.setPlaceholderText('用白话描述想查什么，如：查 8080 端口占用并看最近 100 行 ERROR…')
+        self.ai_prompt_edit.returnPressed.connect(self._ask_ai_generate)
+        ai_input_row.addWidget(self.ai_prompt_edit, 1)
+        self.ai_gen_btn = QPushButton('AI 生成命令')
+        self.ai_gen_btn.clicked.connect(self._ask_ai_generate)
+        ai_input_row.addWidget(self.ai_gen_btn)
+        ai_l.addLayout(ai_input_row)
+
+        self.ai_status_lbl = QLabel('')
+        self.ai_status_lbl.setObjectName('field-hint')
+        self.ai_status_lbl.setWordWrap(True)
+        self.ai_status_lbl.hide()
+        ai_l.addWidget(self.ai_status_lbl)
+
+        self.ai_result_box = QPlainTextEdit()
+        self.ai_result_box.setReadOnly(True)
+        self.ai_result_box.setMaximumHeight(160)
+        self.ai_result_box.hide()
+        ai_l.addWidget(self.ai_result_box)
+
+        ai_apply_row = QHBoxLayout()
+        ai_apply_row.setSpacing(6)
+        self.ai_use_btn = QPushButton('填入命令预览区')
+        self.ai_use_btn.clicked.connect(self._apply_ai_command_to_preview)
+        self.ai_use_btn.hide()
+        ai_apply_row.addWidget(self.ai_use_btn)
+        self.ai_send_log_btn = QPushButton('直接送到日志排查终端')
+        self.ai_send_log_btn.clicked.connect(self._send_ai_command_to_log)
+        self.ai_send_log_btn.hide()
+        ai_apply_row.addWidget(self.ai_send_log_btn)
+        ai_apply_row.addStretch(1)
+        ai_l.addLayout(ai_apply_row)
+        try:
+            from ui.design_system import apply_button
+            apply_button(self.ai_refresh_models_btn, 'ghost', compact=True)
+            apply_button(self.ai_explain_btn, 'secondary', compact=True)
+            apply_button(self.ai_gen_btn, 'primary', compact=True)
+            apply_button(self.ai_use_btn, 'secondary', compact=True)
+            apply_button(self.ai_send_log_btn, 'secondary', compact=True, icon='terminal', icon_size=15)
+        except Exception:
+            pass
+        detail.addWidget(self.ai_card)
         detail.addStretch()
         right_scroll.setWidget(right)
         right_container_layout.addWidget(right_scroll, 1)
@@ -291,12 +423,20 @@ class OpsPanel(QWidget):
         self.delete_btn.setObjectName('ops-delete-custom')
         self.delete_btn.clicked.connect(self._delete_custom_command)
         actions.addWidget(self.delete_btn)
+        self.open_ai_log_btn = QPushButton('AI 日志排查')
+        self.open_ai_log_btn.clicked.connect(self._open_in_ai_log)
+        actions.addWidget(self.open_ai_log_btn)
+        self.send_log_btn = QPushButton('送到日志排查终端')
+        self.send_log_btn.clicked.connect(self._send_to_ops_log)
+        actions.addWidget(self.send_log_btn)
         self.copy_btn = QPushButton()
         self.copy_btn.setObjectName('primary-btn')
         self.copy_btn.clicked.connect(self._copy_command)
         try:
             from ui.design_system import apply_button
             apply_button(self.delete_btn, 'danger', compact=True)
+            apply_button(self.open_ai_log_btn, 'ghost', compact=True)
+            apply_button(self.send_log_btn, 'secondary', compact=True, icon='terminal', icon_size=15)
             apply_button(self.copy_btn, 'primary', compact=True)
         except Exception:
             pass
@@ -341,9 +481,9 @@ class OpsPanel(QWidget):
             self.page_title.setText('命令库' if zh else 'Command Library')
         if getattr(self, 'page_subtitle', None) is not None:
             self.page_subtitle.setText(
-                '仅生成与复制命令，不连接服务器、不自动执行'
+                '生成与复制命令 · 支持 AI 生成/解释与一键填入日志排查终端（不自动执行）'
                 if zh else
-                'Generate and copy commands only — no SSH, no auto-run'
+                'Generate & copy commands · AI helper & fill into Log Investigation terminal (no auto-run)'
             )
         current_category = self.category_combo.currentData()
         self.category_combo.blockSignals(True)
@@ -374,6 +514,34 @@ class OpsPanel(QWidget):
         self.generate_btn.setToolTip('重新生成' if zh else 'Regenerate')
         self.copy_btn.setText('复制命令' if zh else 'Copy command')
         self.copy_btn.setToolTip('复制命令' if zh else 'Copy command')
+        if hasattr(self, 'send_log_btn'):
+            self.send_log_btn.setText('送到日志排查终端' if zh else 'Send to SSH terminal')
+            self.send_log_btn.setToolTip(
+                '跳转到「日志排查」并把命令填入终端输入框（不会自动执行，需你确认后回车运行）'
+                if zh else
+                'Jump to Log Investigation and fill this command into the SSH input bar (does not auto-run)'
+            )
+        if hasattr(self, 'open_ai_log_btn'):
+            self.open_ai_log_btn.setText('AI 日志排查' if zh else 'AI Log Inspect')
+            self.open_ai_log_btn.setToolTip(
+                '带着当前命令场景跳转到「日志排查 → AI 日志与系统排查」继续分析'
+                if zh else
+                'Open AI Log Investigation with this command context'
+            )
+        if hasattr(self, 'ai_card_title'):
+            self.ai_card_title.setText('AI 命令助手' if zh else 'AI Command Helper')
+            self.ai_explain_btn.setText('AI 解释当前命令' if zh else 'Explain current')
+            self.ai_gen_btn.setText('AI 生成命令' if zh else 'Generate')
+            self.ai_refresh_models_btn.setText('刷新模型' if zh else 'Refresh')
+            self.ai_use_btn.setText('填入命令预览区' if zh else 'Apply to preview')
+            self.ai_send_log_btn.setText('直接送到日志排查终端' if zh else 'Send to SSH terminal')
+            self.ai_prompt_edit.setPlaceholderText(
+                '用白话描述想查什么，如：查 8080 端口占用、按分钟统计 ERROR 峰值、定位 Java 死锁…'
+                if zh else
+                'Describe what to inspect, e.g. check port 8080, count ERROR per minute, Java deadlock…'
+            )
+        if hasattr(self, 'guide_btn'):
+            self.guide_btn.setText('引导' if zh else 'Guide')
         self.delete_btn.setText('删除我的命令' if zh else 'Delete my command')
         self.delete_btn.setToolTip('删除我的命令' if zh else 'Delete my command')
         self._refresh_results()
@@ -533,9 +701,210 @@ class OpsPanel(QWidget):
                 raise ValueError('生成结果包含被禁止的删除命令')
             self.preview.setPlainText(text)
             self.copy_btn.setEnabled(True)
+            if hasattr(self, 'send_log_btn'):
+                self.send_log_btn.setEnabled(True)
         except ValueError as exc:
             self.preview.setPlainText(str(exc))
             self.copy_btn.setEnabled(False)
+            if hasattr(self, 'send_log_btn'):
+                self.send_log_btn.setEnabled(False)
+
+    def _confirm_danger_if_needed(self, text: str, action_zh: str, action_en: str) -> bool:
+        risk = self._current_command.get('risk') if self._current_command else infer_risk(text)
+        if risk != 'danger' and infer_risk(text) != 'danger':
+            return True
+        zh = self.language == 'zh'
+        return bool(confirm_action(
+            self,
+            'PengTools · ' + ('高风险确认' if zh else 'Risk confirmation'),
+            (f'该命令会修改服务器状态，{action_zh}前请确认：\n\n1. 目标主机和对象无误；\n2. 已评估业务影响；\n3. 已获得变更授权与回滚方案。\n\n仍要继续吗？'
+             if zh else
+             f'This command changes server state. Confirm target, impact, authorization and rollback before {action_en}. Continue?'),
+            confirm_text=f'仍要{action_zh}' if zh else f'{action_en.title()} anyway',
+            danger=True,
+        ))
+
+    def _send_to_ops_log(self, override_text: str | None = None):
+        text = (override_text if override_text is not None else self.preview.toPlainText()).strip()
+        if not text:
+            return
+        if contains_forbidden_delete(text):
+            show_error(self, 'PengTools', '安全边界：禁止将删除类命令发送到终端。' if self.language == 'zh' else 'Delete commands cannot be sent to terminal.')
+            return
+        if not self._confirm_danger_if_needed(text, '发送到终端输入框', 'sending to terminal'):
+            return
+        self.send_to_ops_log.emit(text)
+
+    def _open_in_ai_log(self):
+        zh = self.language == 'zh'
+        cmd = self.preview.toPlainText().strip()
+        title = ''
+        if self._current_command:
+            title = self._current_command.get('title_zh' if zh else 'title_en', '')
+        prompt = ''
+        if cmd:
+            prompt = (
+                f'请结合当前服务器/日志排查场景，分析这条命令相关的故障排查思路（{title}）：\n{cmd}'
+                if zh else
+                f'Analyze troubleshooting steps for this command ({title}):\n{cmd}'
+            )
+        self.open_ai_log_workspace.emit(prompt)
+
+    def _reload_ai_models(self):
+        if not hasattr(self, 'ai_model_combo'):
+            return
+        zh = self.language == 'zh'
+        prev = self.ai_model_combo.currentData()
+        self.ai_model_combo.blockSignals(True)
+        self.ai_model_combo.clear()
+        try:
+            from tools.intranet_llm import list_enabled_items
+            items = list_enabled_items() or []
+        except Exception:
+            items = []
+        if not items:
+            self.ai_model_combo.addItem('未配置内网模型（可在设置中启用）' if zh else 'No enabled intranet model', '')
+        else:
+            for item in items:
+                name = str(item.get('name') or item.get('model') or item.get('id') or '')
+                self.ai_model_combo.addItem(name, str(item.get('id') or ''))
+            if prev:
+                idx = self.ai_model_combo.findData(prev)
+                if idx >= 0:
+                    self.ai_model_combo.setCurrentIndex(idx)
+        self.ai_model_combo.blockSignals(False)
+
+    def _set_ai_busy(self, busy: bool, status_text: str = ''):
+        for btn in (self.ai_gen_btn, self.ai_explain_btn):
+            btn.setEnabled(not busy)
+        if status_text:
+            self.ai_status_lbl.setText(status_text)
+            self.ai_status_lbl.show()
+        elif not busy:
+            self.ai_status_lbl.hide()
+
+    def _start_ai_task(self, mode: str, prompt: str):
+        zh = self.language == 'zh'
+        if self._ai_worker is not None and self._ai_worker.isRunning():
+            return
+        model_id = str(self.ai_model_combo.currentData() or '').strip()
+        if not model_id:
+            self._reload_ai_models()
+            model_id = str(self.ai_model_combo.currentData() or '').strip()
+        if not model_id:
+            self.ai_status_lbl.setText(
+                '尚未启用内网模型：请先到「设置 → 模型配置」添加并启用内网模型；内置命令和「送到日志排查终端」仍可直接使用。'
+                if zh else
+                'No enabled intranet model configured in Settings; built-in commands and terminal send still work.'
+            )
+            self.ai_status_lbl.show()
+            return
+        self._ai_extracted_cmd = ''
+        self.ai_use_btn.hide()
+        self.ai_send_log_btn.hide()
+        self._set_ai_busy(True, '正在请求内网模型生成安全命令…' if (zh and mode == 'generate') else ('正在请求内网模型解释当前命令…' if zh else 'Contacting intranet LLM…'))
+        worker = _OpsCommandAiWorker(mode, prompt, model_id, self.language, self)
+        worker.finished_ok.connect(self._on_ai_finished)
+        worker.failed.connect(self._on_ai_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._ai_worker = worker
+        worker.start()
+
+    def _ask_ai_generate(self):
+        zh = self.language == 'zh'
+        desc = self.ai_prompt_edit.text().strip()
+        if not desc:
+            self.ai_status_lbl.setText('请先输入想排查的场景，例如：查看 8080 端口占用或定位 Java 死锁。' if zh else 'Enter what you want to inspect first.')
+            self.ai_status_lbl.show()
+            self.ai_prompt_edit.setFocus()
+            return
+        self._start_ai_task('generate', desc)
+
+    def _ask_ai_explain(self):
+        zh = self.language == 'zh'
+        cmd = self.preview.toPlainText().strip()
+        if not cmd:
+            self.ai_status_lbl.setText('当前命令预览区为空，请先在左侧选择一条命令。' if zh else 'Select a command first.')
+            self.ai_status_lbl.show()
+            return
+        self._start_ai_task('explain', cmd)
+
+    @staticmethod
+    def _extract_bash_command(text: str) -> str:
+        m = re.search(r'```(?:bash|sh|shell)?\s*\n(.*?)```', text, re.S | re.I)
+        if m:
+            lines = [ln.strip() for ln in m.group(1).splitlines() if ln.strip() and not ln.strip().startswith('#')]
+            return '\n'.join(lines).strip()
+        return ''
+
+    def _on_ai_finished(self, mode: str, content: str):
+        zh = self.language == 'zh'
+        self._ai_worker = None
+        self._set_ai_busy(False)
+        self.ai_result_box.setPlainText(content or ('模型未返回有效内容。' if zh else 'Empty response.'))
+        self.ai_result_box.show()
+        if mode == 'generate':
+            extracted = self._extract_bash_command(content)
+            if extracted and contains_forbidden_delete(extracted):
+                self.ai_status_lbl.setText('已拦截：模型输出包含被禁止的文件删除类命令，未填入预览区。' if zh else 'Blocked: generated command contains forbidden deletion.')
+                self.ai_status_lbl.show()
+                return
+            if extracted:
+                self._ai_extracted_cmd = extracted
+                self.ai_use_btn.show()
+                self.ai_send_log_btn.show()
+                self.ai_status_lbl.setText('已生成只读排查命令：可一键填入预览区，或直接送到日志排查终端（不会自动执行）。' if zh else 'Generated safe command: apply to preview or send to SSH terminal.')
+                self.ai_status_lbl.show()
+
+    def _on_ai_failed(self, _mode: str, err: str):
+        self._ai_worker = None
+        self._set_ai_busy(False, f'AI 请求失败：{err}' if self.language == 'zh' else f'AI request failed: {err}')
+
+    def _apply_ai_command_to_preview(self):
+        if not self._ai_extracted_cmd or contains_forbidden_delete(self._ai_extracted_cmd):
+            return
+        self.preview.setPlainText(self._ai_extracted_cmd)
+        self.copy_btn.setEnabled(True)
+        self.send_log_btn.setEnabled(True)
+
+    def _send_ai_command_to_log(self):
+        if not self._ai_extracted_cmd:
+            return
+        self._send_to_ops_log(self._ai_extracted_cmd)
+
+    def _start_guided_tour(self):
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.search_edit,
+                '按场景或命令名检索' if zh else 'Search by scenario or command',
+                '直接搜「Java 死锁」「幽灵文件」「HTTP 耗时」「端口」或命令名，右侧可按分类筛选（含新增 Java / JVM 排查）。'
+                if zh else
+                'Search by symptom or command name, and filter by category including Java/JVM.',
+            ),
+            (
+                self.param_frame,
+                '填空生成安全参数化命令' if zh else 'Fill parameters safely',
+                '只需改 PID、端口或日志路径，下方实时生成带引号转义的安全命令，不会误拼接删除指令。'
+                if zh else
+                'Edit PID, port, or log path to render shell-safe commands automatically.',
+            ),
+            (
+                self.ai_card,
+                'AI 定制命令与白话解释' if zh else 'AI generate & explain',
+                '找不到现成模板？输入白话让内网模型生成只读排查命令，或点「AI 解释当前命令」看懂每个参数含义。'
+                if zh else
+                'Ask your configured intranet LLM to craft a safe command or explain the selected one.',
+            ),
+            (
+                self.send_log_btn,
+                '一键送到日志排查终端' if zh else 'Send to Log Investigation terminal',
+                '点「送到日志排查终端」自动跳到 SSH 终端并填好命令（绝不自动执行），确认主机和参数后回车即可运行。'
+                if zh else
+                'Jumps to Log Investigation and fills the SSH input bar without auto-running.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='命令库' if zh else 'Command Library', language=self.language)
 
     def _copy_command(self):
         text = self.preview.toPlainText().strip()
