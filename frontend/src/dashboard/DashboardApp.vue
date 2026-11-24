@@ -43,14 +43,34 @@ function loadHomeMode(): 'simple' | 'full' {
   }
 }
 const homeMode = ref<'simple' | 'full'>(loadHomeMode())
+const pendingHomeMode = ref<'simple' | 'full' | null>(null)
+const modeSwitching = ref(false)
+let modeSwitchTimer = 0
+let modeRevealTimer = 0
+
 function setHomeMode(mode: 'simple' | 'full'): void {
-  if (homeMode.value === mode) return
-  homeMode.value = mode
+  if (homeMode.value === mode && !modeSwitching.value) return
+  if (pendingHomeMode.value === mode && modeSwitching.value) return
+  window.clearTimeout(modeSwitchTimer)
+  window.clearTimeout(modeRevealTimer)
+  pendingHomeMode.value = mode
+  modeSwitching.value = true
   try {
     window.localStorage.setItem(HOME_MODE_KEY, mode)
   } catch {
     // 忽略受限环境存储异常
   }
+  // 先让切换提示与微加载环立即绘制一帧，避免大卡片同步挂载时感觉「卡住没反应」
+  window.requestAnimationFrame(() => {
+    modeSwitchTimer = window.setTimeout(() => {
+      homeMode.value = mode
+      modeRevealTimer = window.setTimeout(() => {
+        modeSwitching.value = false
+        pendingHomeMode.value = null
+        showToast(mode === 'simple' ? '已切换为「简洁视图」' : '已切换为「完整视图」')
+      }, 150)
+    }, 110)
+  })
 }
 
 function onVisibilityChange() {
@@ -79,6 +99,8 @@ onUnmounted(() => {
     document.removeEventListener('visibilitychange', onVisibilityChange)
     document.body.classList.remove('page-hidden')
   }
+  window.clearTimeout(modeSwitchTimer)
+  window.clearTimeout(modeRevealTimer)
   removeWebRipples?.()
   removeWebRipples = null
 })
@@ -269,7 +291,7 @@ function onRetry(): void {
 <template>
   <IconSprite />
 
-  <div v-if="summary" class="dashboard-root" :class="{ 'page-hidden': isHidden }">
+  <div v-if="summary" class="dashboard-root" :class="{ 'page-hidden': isHidden, 'is-mode-switching': modeSwitching }">
     <!-- 首页便当格：支持「简洁 / 完整」切换；简洁视图只保留主卡、常用工具和项目进度 -->
     <div class="bento" :class="{ 'is-board': isBoardWide, 'is-simple': homeMode === 'simple' }">
       <HomeHero
@@ -283,7 +305,8 @@ function onRetry(): void {
         :tools="summary.tools"
         :focus="focus"
         :is-demo="isDemoMode"
-        :home-mode="homeMode"
+        :home-mode="pendingHomeMode || homeMode"
+        :mode-switching="modeSwitching"
         @write-daily="onWriteDaily"
         @create-requirement="onCreateRequirement"
         @focus-stage="onFocusStage"
@@ -378,6 +401,15 @@ function onRetry(): void {
       @open-in-manager="onOpenInManager"
     />
 
+    <Transition name="mode-veil">
+      <div v-if="modeSwitching" class="mode-switch-veil" role="status" aria-live="polite">
+        <div class="mode-switch-pill">
+          <span class="mode-spinner" aria-hidden="true"></span>
+          <span>正在切换为「{{ pendingHomeMode === 'simple' ? '简洁视图' : '完整视图' }}」…</span>
+        </div>
+      </div>
+    </Transition>
+
     <Transition name="toast">
       <div v-if="toast" class="toast" role="status">{{ toast }}</div>
     </Transition>
@@ -395,6 +427,7 @@ html, body, #app {
   margin: 0;
   min-width: 0;
   width: 100%;
+  min-height: 100vh;
 }
 body {
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
@@ -422,6 +455,61 @@ button, input, select, textarea { font: inherit; }
   min-width: 0;
   box-sizing: border-box;
   animation: enter 0.22s ease both;
+}
+
+.dashboard-root.is-mode-switching .bento,
+.dashboard-root.is-mode-switching .home-grid {
+  opacity: 0.58;
+  transform: scale(0.995);
+  transition: opacity 140ms ease, transform 160ms ease;
+}
+
+.mode-switch-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(235, 231, 246, 0.42);
+  pointer-events: auto;
+}
+
+.mode-switch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(108, 88, 217, 0.28);
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 12px 30px rgba(38, 36, 56, 0.14);
+}
+
+.mode-spinner {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(108, 88, 217, 0.22);
+  border-top-color: var(--primary);
+  animation: mode-spin 0.65s linear infinite;
+}
+
+@keyframes mode-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mode-veil-enter-active,
+.mode-veil-leave-active {
+  transition: opacity 150ms ease;
+}
+
+.mode-veil-enter-from,
+.mode-veil-leave-to {
+  opacity: 0;
 }
 
 @keyframes enter {

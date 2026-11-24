@@ -20,6 +20,7 @@ const props = defineProps<{
   focus?: StageKey | null
   isDemo?: boolean | null
   homeMode?: 'simple' | 'full'
+  modeSwitching?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -191,11 +192,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
         {{ props.dateLine }}
         <span v-if="props.isDemo" class="hero-demo">示例数据</span>
       </span>
-      <div class="hero-mode-seg" role="group" aria-label="首页视图模式">
+      <div class="hero-mode-seg" :class="{ switching: props.modeSwitching }" role="group" aria-label="首页视图模式">
         <button
           class="hero-mode-btn"
           :class="{ active: props.homeMode === 'simple' }"
           type="button"
+          :disabled="props.modeSwitching"
           title="简洁视图：仅保留搜索、常用工具与项目进度"
           @click="emit('update:homeMode', 'simple')"
         >简洁</button>
@@ -203,6 +205,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
           class="hero-mode-btn"
           :class="{ active: (props.homeMode || 'full') === 'full' }"
           type="button"
+          :disabled="props.modeSwitching"
           title="完整视图：展示日历、阶段进度、日报与上线概览"
           @click="emit('update:homeMode', 'full')"
         >完整</button>
@@ -383,34 +386,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
+  padding: 3px;
   border-radius: 999px;
-  background: rgba(238, 234, 249, 0.9);
-  border: 1px solid var(--border);
+  background: rgba(235, 230, 248, 0.96);
+  border: 1px solid rgba(108, 88, 217, 0.24);
   flex-shrink: 0;
+}
+
+.hero-mode-seg.switching {
+  opacity: 0.78;
 }
 
 .hero-mode-btn {
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
-.hero-mode-btn:hover {
+.hero-mode-btn:hover:not(:disabled) {
   color: var(--text-strong);
 }
 
 .hero-mode-btn.active {
-  background: var(--surface);
-  color: var(--primary);
-  box-shadow: 0 1px 4px rgba(38, 36, 56, 0.08);
+  background: var(--primary);
+  color: var(--surface);
+  box-shadow: 0 2px 8px rgba(108, 88, 217, 0.28);
+}
+
+.hero-mode-btn:disabled {
+  cursor: wait;
 }
 
 .hero-demo {
