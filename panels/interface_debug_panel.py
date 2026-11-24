@@ -633,7 +633,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.format_req_btn, 'secondary', compact=True, icon='json', icon_size=16)
         self.format_req_btn.clicked.connect(lambda: self._send_body_side('request', 'format'))
         req_tools.addWidget(self.format_req_btn)
-        self.gateway_req_btn = QPushButton(req_page)
+        self.gateway_req_btn = QPushButton(self.req_page)
         apply_button(self.gateway_req_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.gateway_req_btn.clicked.connect(lambda: self._send_body_side('request', 'gateway'))
         self.gateway_req_btn.hide()  # 加解密模块已下线隐藏，保留兼容属性
@@ -661,7 +661,7 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.format_resp_btn, 'secondary', compact=True, icon='json', icon_size=16)
         self.format_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'format'))
         resp_tools.addWidget(self.format_resp_btn)
-        self.gateway_resp_btn = QPushButton(resp_page)
+        self.gateway_resp_btn = QPushButton(self.resp_page)
         apply_button(self.gateway_resp_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.gateway_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'gateway'))
         self.gateway_resp_btn.hide()  # 加解密模块已下线隐藏，保留兼容属性
