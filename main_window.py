@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
         self._shutdown_finalized = False
         self._agent_shutdown_error = ''
         self._startup_ready = False
+        self._announcement_checked = False
         self._boot_step = 0
         self._startup_started_at = time.perf_counter()
         self._startup_interactive_at = None
@@ -451,6 +452,8 @@ class MainWindow(QMainWindow):
         help_menu = QMenu('帮助' if zh else 'Help', self)
         guide = help_menu.addAction('使用说明' if zh else 'User guide')
         guide.triggered.connect(self._show_user_guide)
+        whats_new = help_menu.addAction('更新公告' if zh else "What's New")
+        whats_new.triggered.connect(lambda: self._show_release_announcement(from_startup=False))
         about = help_menu.addAction('关于' if zh else 'About')
         about.triggered.connect(self._show_about)
         unlock = help_menu.addAction('解锁私人工具…' if zh else 'Unlock private tools…')
@@ -1185,6 +1188,9 @@ class MainWindow(QMainWindow):
                 '全部模块已就绪' if self.language == 'zh' else 'All modules ready'
             )
             self._startup_veil = None
+        if not getattr(self, '_announcement_checked', False):
+            self._announcement_checked = True
+            QTimer.singleShot(450, self._maybe_show_release_announcement)
         finished_at = time.perf_counter()
         self._startup_metrics['ready_ms'] = round(
             (finished_at - self._startup_started_at) * 1000
@@ -1729,9 +1735,48 @@ class MainWindow(QMainWindow):
             unlock.triggered.connect(self._unlock_private_tools)
         help_act = menu.addAction('使用说明' if zh else 'User Guide')
         help_act.triggered.connect(self._show_user_guide)
+        whats_new_act = menu.addAction('更新公告' if zh else "What's New")
+        whats_new_act.triggered.connect(lambda: self._show_release_announcement(from_startup=False))
         menu.addSeparator()
         quit_act = menu.addAction('退出软件' if zh else 'Exit')
         quit_act.triggered.connect(self.exit_application)
+
+    def _maybe_show_release_announcement(self):
+        """启动就绪后按需弹出最新版本更新公告（无头/测试或已选择不再提醒时静默跳过）。"""
+        if self._shutting_down or not self.isVisible():
+            return
+        if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or os.environ.get('PENGTOOLS_NO_ANNOUNCEMENT') == '1':
+            return
+        try:
+            from tools.release_notes import should_show_release_announcement
+            if not should_show_release_announcement(self._settings):
+                return
+        except Exception:
+            return
+        self._show_release_announcement(from_startup=True)
+
+    def _show_release_announcement(self, *, from_startup: bool = False):
+        """打开版本更新公告弹窗，并在关闭时保存「本次更新不再提醒 / 永久关闭弹窗」偏好。"""
+        from ui.release_notes_dialog import show_release_notes_dialog
+        patch = show_release_notes_dialog(
+            settings=self._settings,
+            from_startup=from_startup,
+            language=self.language,
+            on_open_guide=self._show_user_guide,
+            parent=self,
+        )
+        if not isinstance(patch, dict):
+            return
+        changed = any(self._settings.get(k) != v for k, v in patch.items())
+        if changed:
+            self._settings.update(patch)
+            try:
+                save_settings(self._settings)
+            except Exception:
+                pass
+            sp = getattr(self, 'settings_panel', None)
+            if sp is not None and isinstance(getattr(sp, '_loaded_settings', None), dict):
+                sp._loaded_settings.update(patch)
 
     def _show_about(self):
         """帮助 / 左下角关于：趣味卡片版，带语录切换与使用说明直达。"""

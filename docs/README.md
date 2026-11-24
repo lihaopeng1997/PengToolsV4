@@ -12,6 +12,7 @@ run.py → main_window.py → panels/ → tools/、ui/、config.py
 
 | 事项 | 入口 |
 |---|---|
+| 版本更新日志 | [CHANGELOG.md](../CHANGELOG.md)（与 `resources/help/release_notes.json` 启动公告同步） |
 | 产品功能与源码定位 | [PRODUCT_AND_SOURCE.md](project/PRODUCT_AND_SOURCE.md)；导航以 `ui/navigation_model.py` 为准 |
 | 开发、复核与上下文 | [DEVELOPMENT_AND_AI.md](project/DEVELOPMENT_AND_AI.md) |
 | 数据中心 | [DATA_CENTER.md](requirements/data-center/DATA_CENTER.md) |

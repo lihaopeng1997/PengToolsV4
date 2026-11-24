@@ -139,6 +139,9 @@ DEFAULT_SETTINGS = {
     'home_username': 'Lihp',
     # Web 铬层开关（侧栏/首页 Web 化）；False 或依赖缺失时回退原生侧栏
     'ui_web_shell': True,
+    # 启动更新公告：已忽略的版本号（发布新版本后自动再提醒）与永久关闭开关
+    'announcement_dismissed_version': '',
+    'announcement_muted_all': False,
     # 配置架构版本（用于单次迁移识别）
     'settings_version': 2,
 }
@@ -289,6 +292,8 @@ def normalize_settings(settings):
     result['model_chat_last_session_id'] = str(result.get('model_chat_last_session_id') or '')
     result['model_chat_last_model_id'] = str(result.get('model_chat_last_model_id') or '')
     result['model_chat_send_with_ctrl_enter'] = bool(result.get('model_chat_send_with_ctrl_enter', True))
+    result['announcement_dismissed_version'] = str(result.get('announcement_dismissed_version') or '').strip()
+    result['announcement_muted_all'] = bool(result.get('announcement_muted_all', False))
     result['security_ssl_verify'] = bool(result.get('security_ssl_verify', True))
     result['security_confirm_remote_request'] = bool(
         result.get('security_confirm_remote_request', True)

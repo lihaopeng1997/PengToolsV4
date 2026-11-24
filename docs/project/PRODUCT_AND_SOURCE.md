@@ -34,27 +34,27 @@ PengToolsHub 是 Windows 上供开发与交付人员使用的本地工具台，�
 
 | ID | 入口与用途 | 主要界面落点 | UI 改造必须保留 |
 |---|---|---|---|
-| 0 | 首页：工作概览、月度任务、快捷入口、每日经典 | `frontend/src/dashboard/`；`panels/dashboard_panel.py` 原生保底 | 汇总口径、跳转 ID、示例隔离、自然刷新 |
-| 1 | 证件类型：测试证件数据 | `panels/credit_panel.py` | 类型选项、生成与校验算法、复制 |
+| 0 | 首页：工作概览（简洁/完整视图）、月度足迹、日报双向同步、快捷入口 | `frontend/src/dashboard/`；`panels/dashboard_panel.py` 原生保底 | 汇总口径、跳转 ID、示例隔离、日报联动与自然刷新 |
+| 1 | 测试数据：合并「证件类型 + 车辆 VIN」全宽工作台 | `panels/credit_panel.py`（内嵌 `panels/vin_panel.py`） | 类型选项、证件与 VIN 生成/校验算法、复制 |
 | 2 | 发版联动：需求、SQL 与材料 | `panels/sql_panel.py` | SQL 提取/生成、目录/SVN、导出与提签 |
 | 3 | 接口文档更新 | `panels/docx_panel.py` | 模板、SQL 输入、字段映射和输出文件 |
-| 4 | 车辆 VIN 测试数据 | `panels/vin_panel.py` | VIN 规则、生成参数与输出 |
-| 5 | 加解密与结果查看 | `panels/gateway_panel.py` | 国密处理、参数、错误与明文处理范围 |
-| 6 | 命令库 | `panels/ops_panel.py` | 搜索、生成、复制和安全提示；不擅自增加连机执行 |
+| 4 | （兼容路由）原车辆 VIN，现并入 ID 1「测试数据」 | 路由归并至 `panels/credit_panel.py` | 兼容历史跳转与测试引用 |
+| 5 | （已下线隐藏）原加解密模块 | 不再挂载于主导航与启动预热 | 保留兼容兜底提示，不主动暴露死入口 |
+| 6 | 命令库：119+ 运维/JVM 诊断命令与 AI/终端联动 | `panels/ops_panel.py` | 搜索、生成、复制、安全提示与带入终端（绝不自动执行） |
 | 7 | 设置 | `panels/settings_panel.py` | 单主题既定结果、其余设置键/默认值/保存/生效方式 |
-| 8 | 自我学习 | `panels/personal_panel.py` | 资料管理、搜索、现有解锁与私有数据边界 |
-| 9 | 日报 | `panels/personal_panel.py`，与学习复用栈实例 | 自动保存、提醒和日期行为 |
+| 8 | 自我学习 | `panels/personal_panel.py` | 资料管理、搜索与本地私有数据边界 |
+| 9 | 日报 | `panels/personal_panel.py`，与学习复用栈实例 | 自动保存、提醒、按月树与首页实时双向联动 |
 | 10 | 需求管理 | `panels/requirement_panel.py`、`panels/test_points_editor.py` | 筛选、状态、日期、测试点、附件、联动与保存 |
-| 11 | 格式工具 | `panels/format_panel.py` | JSON/XML/SQL/文本规则、错误定位与复制 |
+| 11 | 格式工具：JSON/XML/SQL/文本 + 图片/PDF ↔ Base64 离线互转 | `panels/format_panel.py`、`tools/media_base64.py` | 格式规则、错误定位、复制与纯本地 Base64 预览/保存 |
 | 12 | 接口排查 | `panels/interface_debug_panel.py` | 抓取/请求测试、代理/证书/浏览器配置、队列和停止 |
-| 13 | 日志排查 | `panels/ops_log_panel.py` | SSH 多机任务、关键字截取、终端、取消与导出 |
-| 14 | 数据中心父级 | `ui/navigation_model.py`、MainWindow | 只展开/收起；首页快捷入口实际指向 18 |
-| 15 | 模型父级 | 同上 | 只展开/收起 |
+| 13 | 日志排查 | `panels/ops_log_panel.py` | SSH 多机任务、独立底部命令坞、关键字截取、终端、AI 排查与导出 |
+| 14 | 数据中心（统一工作区入口） | `panels/data_center_panel.py`、`ui/navigation_model.py` | 统一承载六类数据库工作区与兼容旧索引 18–23 |
+| 15 | 模型父级（兼容索引，不在侧栏展开占位） | `ui/navigation_model.py` | 仅兼容路由 |
 | 16 | 模型聊天 | `panels/model_chat_panel.py` | 模型配置、上下文、流式、停止和历史 |
-| 17 | Agent 工作 | `panels/agent_workbench_panel.py` | 项目目录绑定、执行模式、工具权限、停止与记录 |
-| 18–21 | Oracle / MySQL / OceanBase / 达梦 | `panels/ai_workbench_panel.py` 的 `AiWorkbenchPanel`，按 dialect 创建 | 方言、连接、事务、守卫、对象树、查询、结果和导出 |
-| 22 | Redis | `panels/db_redis_panel.py` | Key 类型、TTL、命令与修改确认 |
-| 23 | MongoDB | `panels/db_mongodb_panel.py` | 集合、文档、查询与 Shell 行为 |
+| 17 | Agent 工作台 | `panels/agent_workbench_panel.py` | 项目目录绑定、执行模式、工具权限、停止与记录 |
+| 18–21 | （兼容路由）Oracle / MySQL / OceanBase / 达梦 | `panels/ai_workbench_panel.py` 的 `AiWorkbenchPanel`，按 dialect 创建 | 方言、连接、事务、守卫、对象树、查询、结果和导出 |
+| 22 | （兼容路由）Redis | `panels/db_redis_panel.py` | Key 类型、TTL、命令与修改确认 |
+| 23 | （兼容路由）MongoDB | `panels/db_mongodb_panel.py` | 集合、文档、查询与 Shell 行为 |
 
 注意：`ai_workbench_panel.py` 在当前装配中承担四类关系数据库工作台，不是根据文件名猜出的 Agent 页；导航注释中的概念类名也不等于实际存在的 Python 类。必须追踪实例创建。
 
@@ -69,6 +69,7 @@ PengToolsHub 是 Windows 上供开发与交付人员使用的本地工具台，�
 | 接口与日志 | `tools/http_capture.py`、`tools/capture_lifecycle.py`、`tools/iface_request_test.py`、`tools/ops_ssh.py`、`tools/ops_ssh_shell.py` |
 | 模型和 Agent | `tools/intranet_llm.py`、`tools/model_chat_store.py`、`tools/agent_runtime.py`、`tools/agent_store.py` |
 | 原生公共视觉 | `ui/page_chrome.py`、`ui/design_system.py`、`ui/dialog_buttons.py`、`ui/icons.py`、`resources/style.qss` |
+| 引导、帮助与更新公告 | `ui/guided_tour.py`、`ui/help_dialog.py`、`ui/release_notes_dialog.py`、`tools/release_notes.py`、`resources/help/` |
 | Loading 与动效 | `ui/aurora_progress.py`、`ui/thinking_indicator.py`、`ui/startup_splash.py`、`ui/motion.py`；以及使用它们的页面 |
 | 悬浮窗 | `ui/quick_panel.py`、`ui/floating_shortcuts_editor.py`、导航模型 |
 | 分栏持久化 | `ui/splitter_prefs.py` 的既有安装与恢复接口 |
