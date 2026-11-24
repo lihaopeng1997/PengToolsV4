@@ -140,7 +140,7 @@ def _build_items() -> dict[int, NavItem]:
         8: ('自我学习资料整理与全文搜索', 'Learning library and full-text search'),
         9: ('每日日报与定时提醒', 'Daily reports and reminders'),
         10: ('需求归档、上线台账与工具联动', 'Requirement tracking and tool links'),
-        11: ('JSON / XML / SQL / 文本辅助离线格式化', 'Offline JSON / XML / SQL / text helpers'),
+        11: ('JSON / XML / SQL / 文本 / 图片与 PDF 转 Base64 离线工具', 'Offline JSON / XML / SQL / text / Image & PDF Base64'),
         12: ('多浏览器接口实时排查与本机请求测试', 'Multi-browser API capture and local request test'),
         13: ('SSH 多机并行日志关键字截取与本地导出', 'SSH multi-host log keyword extract and local export'),
         14: ('数据中心：Oracle / MySQL / OceanBase / 达梦 / Redis / MongoDB', 'Data center for six database engines'),

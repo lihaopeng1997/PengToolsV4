@@ -6,13 +6,18 @@ from __future__ import annotations
 import os
 import re
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QBuffer, QIODevice, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from tools.media_base64 import (
+    MAX_MEDIA_FILE_BYTES, MediaBase64Result, decode_base64_to_media,
+    encode_bytes_to_base64, encode_file_to_base64, format_byte_size,
+    format_media_base64_output,
+)
 from tools.sql_tool import (
     deduplicate_sql_statements, split_statements, strip_comments,
     validate_oracle_sql_detailed,
@@ -22,7 +27,7 @@ from tools.text_dev_helpers import (
     encode_base64, encode_unicode_escapes, encode_url, extract_java_stack,
     format_timestamp_bundle,
 )
-from ui.confirm_dialog import show_warning
+from ui.confirm_dialog import show_error, show_info, show_warning
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import size_enum_combo
 from ui.json_viewer import JsonViewer
@@ -436,6 +441,655 @@ class _TextDevHelpersTab(QWidget):
         self._on_mode(self.mode_combo.currentIndex())
 
 
+class _MediaEncodeWorker(QThread):
+    """后台读取并编码图片/PDF，避免大 PDF 阻塞界面主线程。"""
+
+    finished_ok = pyqtSignal(object)  # MediaBase64Result
+    failed = pyqtSignal(str)
+
+    def __init__(self, path: str, parent=None):
+        super().__init__(parent)
+        self._path = path
+
+    def run(self):
+        try:
+            self.finished_ok.emit(encode_file_to_base64(self._path))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class _MediaDropCard(QFrame):
+    """支持拖拽图片 / PDF 或点击选择文件的可视化预览卡。"""
+
+    file_dropped = pyqtSignal(str)
+    clicked_empty = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('media-drop-card')
+        self.setAcceptDrops(True)
+        self._has_media = False
+        self._apply_border(dragging=False)
+
+    def _apply_border(self, *, dragging: bool):
+        if dragging:
+            self.setStyleSheet(
+                'QFrame#media-drop-card { background: #F2EEFB; border: 2px dashed #6C58D9; border-radius: 12px; }'
+            )
+        else:
+            self.setStyleSheet(
+                'QFrame#media-drop-card { background: #F8F6FE; border: 1.5px dashed #CFC6EE; border-radius: 12px; }'
+            )
+
+    def set_has_media(self, value: bool):
+        self._has_media = bool(value)
+        if self._has_media:
+            self.setStyleSheet(
+                'QFrame#media-drop-card { background: #FDFDFF; border: 1px solid #DFD9F0; border-radius: 12px; }'
+            )
+        else:
+            self._apply_border(dragging=False)
+
+    def dragEnterEvent(self, event):
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile() and os.path.isfile(url.toLocalFile()):
+                    self._apply_border(dragging=True)
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.set_has_media(self._has_media)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self.set_has_media(self._has_media)
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    path = url.toLocalFile()
+                    if os.path.isfile(path):
+                        event.acceptProposedAction()
+                        self.file_dropped.emit(path)
+                        return
+        event.ignore()
+
+    def mouseReleaseEvent(self, event):
+        if not self._has_media and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked_empty.emit()
+        super().mouseReleaseEvent(event)
+
+
+class _MediaBase64Tab(QWidget):
+    """图片 / PDF ↔ Base64 双向离线转换页签。"""
+
+    _PREVIEW_CHAR_CAP = 120_000
+
+    def __init__(self, language='zh', parent=None):
+        super().__init__(parent)
+        self.language = language
+        self._current_result: MediaBase64Result | None = None
+        self._decoded_bytes: bytes = b''
+        self._decoded_ext: str = '.bin'
+        self._decoded_mime: str = ''
+        self._source_path: str = ''
+        self._preview_pixmap: QPixmap | None = None
+        self._full_output_text: str = ''
+        self._output_truncated: bool = False
+        self._worker: _MediaEncodeWorker | None = None
+        self._copy_reset_timer = QTimer(self)
+        self._copy_reset_timer.setSingleShot(True)
+        self._copy_reset_timer.timeout.connect(self._restore_copy_label)
+        self._setup_ui()
+        self.set_language(language)
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 8, 0, 0)
+        root.setSpacing(10)
+
+        # 顶栏：文件选择 / 剪贴板粘贴 / 输出格式 / 76 列换行 / 反向还原 / 清空
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+        self.pick_btn = QPushButton()
+        apply_button(self.pick_btn, 'primary', compact=True, icon='folder-open', icon_size=15)
+        self.pick_btn.clicked.connect(self._pick_file)
+        bar.addWidget(self.pick_btn)
+
+        self.paste_clip_btn = QPushButton()
+        apply_button(self.paste_clip_btn, 'secondary', compact=True)
+        self.paste_clip_btn.clicked.connect(self._paste_from_clipboard)
+        bar.addWidget(self.paste_clip_btn)
+
+        self.mode_label = QLabel()
+        self.mode_label.setObjectName('field-caption')
+        bar.addWidget(self.mode_label)
+
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem('纯 Base64（无前缀）', 'raw')
+        self.mode_combo.addItem('Data URI（含 data:...;base64,）', 'data_uri')
+        self.mode_combo.addItem('HTML 标签（<img> / <embed>）', 'html')
+        self.mode_combo.addItem('CSS background-image', 'css')
+        size_enum_combo(self.mode_combo)
+        self.mode_combo.currentIndexChanged.connect(self._rerender_output)
+        bar.addWidget(self.mode_combo)
+
+        self.wrap_cb = QCheckBox()
+        self.wrap_cb.toggled.connect(self._rerender_output)
+        bar.addWidget(self.wrap_cb)
+
+        bar.addStretch(1)
+
+        self.decode_btn = QPushButton()
+        apply_button(self.decode_btn, 'secondary', compact=True)
+        self.decode_btn.clicked.connect(self._decode_from_editor)
+        bar.addWidget(self.decode_btn)
+
+        self.clear_btn = QPushButton()
+        apply_button(self.clear_btn, 'ghost', compact=True)
+        self.clear_btn.clicked.connect(self._clear_all)
+        bar.addWidget(self.clear_btn)
+        root.addLayout(bar)
+
+        # 主体左右分栏：左侧预览/拖放区 | 右侧 Base64 文本与操作区
+        self.hsplit = QSplitter(Qt.Orientation.Horizontal)
+        self.hsplit.setHandleWidth(14)
+        self.hsplit.setProperty('prismGutter', True)
+        self.hsplit.setChildrenCollapsible(False)
+
+        left_pane = QWidget()
+        left_l = QVBoxLayout(left_pane)
+        left_l.setContentsMargins(0, 0, 0, 0)
+        left_l.setSpacing(8)
+
+        self.drop_card = _MediaDropCard(left_pane)
+        self.drop_card.setMinimumHeight(260)
+        self.drop_card.file_dropped.connect(self.load_file)
+        self.drop_card.clicked_empty.connect(self._pick_file)
+        drop_l = QVBoxLayout(self.drop_card)
+        drop_l.setContentsMargins(16, 16, 16, 16)
+        drop_l.setSpacing(8)
+        drop_l.addStretch(1)
+
+        self.preview_badge = QLabel()
+        self.preview_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_badge.setFixedSize(64, 42)
+        self.preview_badge.setStyleSheet(
+            'background-color: #EEE9FF; color: #503DBE; border: 1px solid #D5CCF3;'
+            ' border-radius: 10px; font-size: 15px; font-weight: 700;'
+        )
+        self.preview_badge.hide()
+        drop_l.addWidget(self.preview_badge, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        self.preview_image_lbl = QLabel()
+        self.preview_image_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_image_lbl.setMinimumHeight(140)
+        self.preview_image_lbl.hide()
+        drop_l.addWidget(self.preview_image_lbl, 1)
+
+        self.drop_title = QLabel()
+        self.drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_title.setWordWrap(True)
+        self.drop_title.setStyleSheet('color: #262438; font-size: 14px; font-weight: 700; background: transparent;')
+        drop_l.addWidget(self.drop_title)
+
+        self.drop_hint = QLabel()
+        self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_hint.setWordWrap(True)
+        self.drop_hint.setStyleSheet('color: #615D73; font-size: 12px; background: transparent;')
+        drop_l.addWidget(self.drop_hint)
+        drop_l.addStretch(1)
+        left_l.addWidget(self.drop_card, 1)
+
+        self.meta_pill = QLabel()
+        self.meta_pill.setObjectName('field-hint')
+        self.meta_pill.setWordWrap(True)
+        left_l.addWidget(self.meta_pill)
+
+        left_foot = QHBoxLayout()
+        left_foot.setSpacing(8)
+        self.save_media_btn = QPushButton()
+        apply_button(self.save_media_btn, 'secondary', compact=True, icon='export', icon_size=15)
+        self.save_media_btn.setEnabled(False)
+        self.save_media_btn.clicked.connect(self._save_restored_file)
+        left_foot.addWidget(self.save_media_btn)
+        left_foot.addStretch(1)
+        left_l.addLayout(left_foot)
+        self.hsplit.addWidget(left_pane)
+
+        right_pane = QWidget()
+        right_l = QVBoxLayout(right_pane)
+        right_l.setContentsMargins(0, 0, 0, 0)
+        right_l.setSpacing(8)
+
+        out_head = QHBoxLayout()
+        out_head.setSpacing(8)
+        self.out_title = QLabel()
+        self.out_title.setObjectName('zone-title')
+        out_head.addWidget(self.out_title)
+        self.stats_lbl = QLabel()
+        self.stats_lbl.setObjectName('field-hint')
+        out_head.addWidget(self.stats_lbl, 1)
+        self.export_txt_btn = QPushButton()
+        apply_button(self.export_txt_btn, 'secondary', compact=True)
+        self.export_txt_btn.setEnabled(False)
+        self.export_txt_btn.clicked.connect(self._export_base64_txt)
+        out_head.addWidget(self.export_txt_btn)
+        self.copy_b64_btn = QPushButton()
+        apply_button(self.copy_b64_btn, 'primary', compact=True, icon='copy', icon_size=15)
+        self.copy_b64_btn.setEnabled(False)
+        self.copy_b64_btn.clicked.connect(self._copy_base64)
+        out_head.addWidget(self.copy_b64_btn)
+        right_l.addLayout(out_head)
+
+        self.trunc_banner = QLabel()
+        self.trunc_banner.setObjectName('ops-safety-note')
+        self.trunc_banner.setWordWrap(True)
+        self.trunc_banner.hide()
+        right_l.addWidget(self.trunc_banner)
+
+        self.b64_edit = QPlainTextEdit()
+        self.b64_edit.setObjectName('format-text-output')
+        self.b64_edit.setFont(QFont('Consolas', 10))
+        self.b64_edit.textChanged.connect(self._on_editor_text_changed)
+        right_l.addWidget(self.b64_edit, 1)
+        self.hsplit.addWidget(right_pane)
+
+        self.hsplit.setStretchFactor(0, 4)
+        self.hsplit.setStretchFactor(1, 6)
+        install_splitter_prefs(
+            self.hsplit,
+            defaults=[380, 620],
+            defaults_for_extent=lambda extent: [
+                max(320, min(460, int(extent * 0.38))),
+                max(420, extent - max(320, min(460, int(extent * 0.38)))),
+            ],
+            page_id='format-tools',
+            tab_id='media-base64',
+            min_sizes=[280, 380],
+            accessible_name='图片PDF与Base64分隔',
+        )
+        root.addWidget(self.hsplit, 1)
+
+        self.status_lbl = QLabel()
+        self.status_lbl.setObjectName('field-hint')
+        self.status_lbl.setWordWrap(True)
+        root.addWidget(self.status_lbl)
+
+    def set_language(self, language):
+        self.language = language
+        zh = language == 'zh'
+        self.pick_btn.setText('选择图片 / PDF' if zh else 'Select Image / PDF')
+        self.paste_clip_btn.setText('粘贴剪贴板图片' if zh else 'Paste clipboard image')
+        self.mode_label.setText('输出格式' if zh else 'Format')
+        self.mode_combo.setItemText(0, '纯 Base64（无前缀）' if zh else 'Raw Base64')
+        self.mode_combo.setItemText(1, 'Data URI（data:...;base64,）' if zh else 'Data URI')
+        self.mode_combo.setItemText(2, 'HTML 标签（<img> / <embed>）' if zh else 'HTML tag')
+        self.mode_combo.setItemText(3, 'CSS background-image' if zh else 'CSS background-image')
+        self.wrap_cb.setText('76 列换行' if zh else 'Wrap 76 cols')
+        self.decode_btn.setText('Base64 还原预览' if zh else 'Decode Base64')
+        self.clear_btn.setText('清空' if zh else 'Clear')
+        self.out_title.setText('Base64 文本' if zh else 'Base64 Text')
+        self.export_txt_btn.setText('导出 .txt' if zh else 'Export .txt')
+        self._restore_copy_label()
+        self.save_media_btn.setText('保存还原文件…' if zh else 'Save file…')
+        self.b64_edit.setPlaceholderText(
+            '选择或拖入图片 / PDF 后自动生成 Base64；\n也可以直接把已有 Base64（含或不含 data:...;base64, 前缀）粘贴到这里，点上方「Base64 还原预览」查看图片或另存为文件。'
+            if zh else
+            'Select or drop an image/PDF to encode, or paste Base64 here and click Decode Base64.'
+        )
+        if not self._current_result and not self._decoded_bytes:
+            self._show_empty_drop_state()
+
+    def _restore_copy_label(self):
+        self.copy_b64_btn.setText('复制 Base64' if self.language == 'zh' else 'Copy Base64')
+
+    def _show_empty_drop_state(self):
+        zh = self.language == 'zh'
+        self.drop_card.set_has_media(False)
+        self.preview_badge.hide()
+        self.preview_image_lbl.hide()
+        self.preview_image_lbl.clear()
+        self.drop_title.setText('拖拽图片或 PDF 到此处，或点击选择文件' if zh else 'Drop an image or PDF here, or click to browse')
+        self.drop_title.show()
+        self.drop_hint.setText(
+            f'支持 PNG / JPG / WebP / GIF / BMP / SVG / ICO / PDF（单文件 ≤ {format_byte_size(MAX_MEDIA_FILE_BYTES)}，纯离线不上传）'
+            if zh else
+            f'Supports PNG/JPG/WebP/GIF/BMP/SVG/ICO/PDF up to {format_byte_size(MAX_MEDIA_FILE_BYTES)} offline.'
+        )
+        self.drop_hint.show()
+        self.meta_pill.setText('')
+
+    def _pick_file(self):
+        zh = self.language == 'zh'
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        start = get_dialog_start_dir('format_media_base64', os.path.dirname(self._source_path) if self._source_path else '')
+        flt = (
+            '图片与 PDF (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.ico *.tif *.tiff *.pdf);;'
+            '图片文件 (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.ico *.tif *.tiff);;'
+            'PDF 文档 (*.pdf);;所有文件 (*)'
+            if zh else
+            'Images & PDF (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.ico *.tif *.tiff *.pdf);;All Files (*)'
+        )
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            '选择要转 Base64 的图片或 PDF' if zh else 'Select image or PDF',
+            start,
+            flt,
+        )
+        if not path:
+            return
+        remember_dialog_path('format_media_base64', path)
+        self.load_file(path)
+
+    def load_file(self, path: str):
+        zh = self.language == 'zh'
+        if not path or not os.path.isfile(path):
+            show_warning(self, 'PengTools', '未找到该文件。' if zh else 'File not found.')
+            return
+        self._source_path = path
+        try:
+            fsize = os.path.getsize(path)
+        except OSError as exc:
+            show_error(self, 'PengTools', str(exc))
+            return
+        # 小文件（<= 1 MB）即时编码零延迟；大文件走后台线程防界面卡顿
+        if fsize <= 1024 * 1024:
+            try:
+                res = encode_file_to_base64(path)
+                self._apply_encode_result(res)
+            except Exception as exc:
+                show_warning(self, 'PengTools', str(exc))
+            return
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self.pick_btn.setEnabled(False)
+        self.status_lbl.setText(f'正在编码 {os.path.basename(path)}（{format_byte_size(fsize)}）…' if zh else f'Encoding {os.path.basename(path)}…')
+        worker = _MediaEncodeWorker(path, self)
+        worker.finished_ok.connect(self._on_worker_done)
+        worker.failed.connect(self._on_worker_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._worker = worker
+        worker.start()
+
+    def _on_worker_done(self, result: MediaBase64Result):
+        self._worker = None
+        self.pick_btn.setEnabled(True)
+        self._apply_encode_result(result)
+
+    def _on_worker_failed(self, err: str):
+        self._worker = None
+        self.pick_btn.setEnabled(True)
+        self.status_lbl.setText('')
+        show_warning(self, 'PengTools', err)
+
+    def _paste_from_clipboard(self):
+        zh = self.language == 'zh'
+        cb = QApplication.clipboard()
+        if cb is None:
+            return
+        mime = cb.mimeData()
+        if mime is not None and mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile() and os.path.isfile(url.toLocalFile()):
+                    self.load_file(url.toLocalFile())
+                    return
+        image: QImage = cb.image()
+        if image.isNull():
+            show_warning(
+                self,
+                'PengTools',
+                '剪贴板里没有图片或本地文件；可先截图或复制图片/PDF 文件后再点此按钮。'
+                if zh else
+                'No image or local file found in clipboard.',
+            )
+            return
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        ok = image.save(buf, 'PNG')
+        buf.close()
+        raw = bytes(buf.data())
+        if not ok or not raw:
+            show_warning(self, 'PengTools', '无法读取剪贴板图片。' if zh else 'Failed to encode clipboard image.')
+            return
+        self._source_path = ''
+        try:
+            res = encode_bytes_to_base64(raw, filename='clipboard.png', mime='image/png')
+            self._apply_encode_result(res)
+        except Exception as exc:
+            show_warning(self, 'PengTools', str(exc))
+
+    def _apply_encode_result(self, res: MediaBase64Result):
+        self._current_result = res
+        self._decoded_bytes = res.raw_bytes
+        self._decoded_ext = res.ext
+        self._decoded_mime = res.mime
+        self._render_media_preview(res.raw_bytes, res.filename, res.mime, res.kind, res.pdf_pages)
+        self._rerender_output()
+        self.save_media_btn.setEnabled(True)
+        zh = self.language == 'zh'
+        self.status_lbl.setText(
+            f'已转换：{res.filename}（{res.mime} · 原始 {format_byte_size(res.raw_size)}）'
+            if zh else
+            f'Encoded: {res.filename} ({res.mime} · {format_byte_size(res.raw_size)})'
+        )
+
+    def _render_media_preview(self, raw: bytes, name: str, mime: str, kind: str, pdf_pages: int = 0):
+        zh = self.language == 'zh'
+        self.drop_card.set_has_media(True)
+        self._preview_pixmap = None
+        if kind == 'image':
+            pix = QPixmap()
+            if pix.loadFromData(raw):
+                self._preview_pixmap = pix
+                self.preview_badge.hide()
+                self.drop_title.hide()
+                self.drop_hint.hide()
+                self.preview_image_lbl.show()
+                self._rescale_preview_pixmap()
+                self.meta_pill.setText(
+                    f'{name}  ·  {pix.width()} × {pix.height()} px  ·  {mime}  ·  {format_byte_size(len(raw))}'
+                )
+                return
+        # PDF 或无法直接光栅化的格式：展示清晰文档卡片
+        self.preview_image_lbl.hide()
+        self.preview_badge.setText('PDF' if kind == 'pdf' else (mime.split('/')[-1].upper()[:5] or 'FILE'))
+        self.preview_badge.show()
+        self.drop_title.setText(name or ('PDF 文档' if kind == 'pdf' else '已解码文件'))
+        self.drop_title.show()
+        page_note = (f'约 {pdf_pages} 页 · ' if pdf_pages > 0 else '') if zh else (f'~{pdf_pages} page(s) · ' if pdf_pages > 0 else '')
+        self.drop_hint.setText(f'{page_note}{mime} · {format_byte_size(len(raw))}')
+        self.drop_hint.show()
+        self.meta_pill.setText(f'{name}  ·  {page_note}{mime}  ·  {format_byte_size(len(raw))}')
+
+    def _rescale_preview_pixmap(self):
+        if self._preview_pixmap is None or self._preview_pixmap.isNull():
+            return
+        avail = self.drop_card.size()
+        max_w = max(180, avail.width() - 36)
+        max_h = max(160, avail.height() - 40)
+        scaled = self._preview_pixmap.scaled(
+            max_w, max_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.preview_image_lbl.setPixmap(scaled)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._rescale_preview_pixmap()
+
+    def _rerender_output(self):
+        if self._current_result is None:
+            return
+        mode = str(self.mode_combo.currentData() or 'raw')
+        wrap = 76 if self.wrap_cb.isChecked() else 0
+        full_text = format_media_base64_output(self._current_result, mode=mode, line_wrap=wrap)
+        self._set_output_text(full_text)
+
+    def _set_output_text(self, full_text: str):
+        zh = self.language == 'zh'
+        self._full_output_text = full_text
+        total_chars = len(full_text)
+        self._output_truncated = total_chars > self._PREVIEW_CHAR_CAP
+        self.b64_edit.blockSignals(True)
+        try:
+            if self._output_truncated:
+                self.b64_edit.setPlainText(full_text[:self._PREVIEW_CHAR_CAP] + '\n…')
+                self.trunc_banner.setText(
+                    f'内容较大（共 {total_chars:,} 字符），编辑框仅预览前 {self._PREVIEW_CHAR_CAP:,} 字符以保持流畅；'
+                    f'点击「复制 Base64」或「导出 .txt」均会输出完整内容。'
+                    if zh else
+                    f'Large output ({total_chars:,} chars): showing first {self._PREVIEW_CHAR_CAP:,} chars; Copy/Export uses full content.'
+                )
+                self.trunc_banner.show()
+            else:
+                self.b64_edit.setPlainText(full_text)
+                self.trunc_banner.hide()
+        finally:
+            self.b64_edit.blockSignals(False)
+        has_text = bool(full_text)
+        self.copy_b64_btn.setEnabled(has_text)
+        self.export_txt_btn.setEnabled(has_text)
+        if has_text and self._current_result is not None:
+            self.stats_lbl.setText(
+                f'原始 {format_byte_size(self._current_result.raw_size)} → {total_chars:,} 字符'
+                if zh else
+                f'{format_byte_size(self._current_result.raw_size)} → {total_chars:,} chars'
+            )
+        elif has_text:
+            self.stats_lbl.setText(f'{total_chars:,} 字符' if zh else f'{total_chars:,} chars')
+        else:
+            self.stats_lbl.setText('')
+
+    def _on_editor_text_changed(self):
+        # 用户手动粘贴或修改文本后，以编辑器内容为准
+        self._output_truncated = False
+        self.trunc_banner.hide()
+        text = self.b64_edit.toPlainText()
+        self._full_output_text = text
+        has_text = bool(text.strip())
+        self.copy_b64_btn.setEnabled(has_text)
+        self.export_txt_btn.setEnabled(has_text)
+        self.stats_lbl.setText(f'{len(text):,} 字符' if has_text else '')
+
+    def _decode_from_editor(self):
+        zh = self.language == 'zh'
+        source_text = self._full_output_text if self._output_truncated else self.b64_edit.toPlainText()
+        try:
+            decoded = decode_base64_to_media(source_text)
+        except Exception as exc:
+            show_warning(self, 'PengTools', str(exc))
+            return
+        self._current_result = None
+        self._decoded_bytes = decoded.raw_bytes
+        self._decoded_ext = decoded.ext
+        self._decoded_mime = decoded.mime
+        name = f'decoded{decoded.ext}'
+        self._render_media_preview(decoded.raw_bytes, name, decoded.mime, decoded.kind, decoded.pdf_pages)
+        self.save_media_btn.setEnabled(True)
+        self.status_lbl.setText(
+            f'已还原：{decoded.mime} · {format_byte_size(decoded.raw_size)}（可点左侧「保存还原文件…」落盘）'
+            if zh else
+            f'Decoded: {decoded.mime} · {format_byte_size(decoded.raw_size)}'
+        )
+
+    def _copy_base64(self):
+        text = self._full_output_text if self._full_output_text else self.b64_edit.toPlainText()
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
+        zh = self.language == 'zh'
+        self.copy_b64_btn.setText('已复制完整内容' if zh else 'Copied')
+        self._copy_reset_timer.start(1600)
+        self.status_lbl.setText(
+            f'已复制完整 Base64 到剪贴板（{len(text):,} 字符）'
+            if zh else
+            f'Copied {len(text):,} chars to clipboard'
+        )
+
+    def _export_base64_txt(self):
+        text = self._full_output_text if self._full_output_text else self.b64_edit.toPlainText()
+        if not text:
+            return
+        zh = self.language == 'zh'
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        base = os.path.splitext(self._current_result.filename)[0] if self._current_result else 'media'
+        default_dir = get_dialog_start_dir('format_media_base64_export')
+        default_path = os.path.join(default_dir, f'{base}_base64.txt') if default_dir else f'{base}_base64.txt'
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            '导出 Base64 文本' if zh else 'Export Base64 text',
+            default_path,
+            'Text Files (*.txt);;All Files (*)',
+        )
+        if not path:
+            return
+        remember_dialog_path('format_media_base64_export', path)
+        try:
+            with open(path, 'w', encoding='utf-8') as stream:
+                stream.write(text)
+            self.status_lbl.setText(('已导出 Base64 文本：' if zh else 'Exported: ') + path)
+        except OSError as exc:
+            show_error(self, 'PengTools', str(exc))
+
+    def _save_restored_file(self):
+        if not self._decoded_bytes:
+            return
+        zh = self.language == 'zh'
+        from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
+        ext = self._decoded_ext or '.bin'
+        default_dir = get_dialog_start_dir('format_media_base64_save')
+        default_name = (
+            self._current_result.filename if self._current_result else f'restored{ext}'
+        )
+        default_path = os.path.join(default_dir, default_name) if default_dir else default_name
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            '保存还原后的图片 / PDF' if zh else 'Save decoded file',
+            default_path,
+            f'Media (*{ext});;All Files (*)',
+        )
+        if not path:
+            return
+        remember_dialog_path('format_media_base64_save', path)
+        try:
+            with open(path, 'wb') as stream:
+                stream.write(self._decoded_bytes)
+            show_info(
+                self,
+                '保存成功' if zh else 'Saved',
+                f'已保存文件（{format_byte_size(len(self._decoded_bytes))}）：\n{path}' if zh else f'Saved to:\n{path}',
+                kind='success',
+            )
+            self.status_lbl.setText(('已保存还原文件：' if zh else 'Saved: ') + path)
+        except OSError as exc:
+            show_error(self, 'PengTools', str(exc))
+
+    def _clear_all(self):
+        self._current_result = None
+        self._decoded_bytes = b''
+        self._decoded_ext = '.bin'
+        self._decoded_mime = ''
+        self._source_path = ''
+        self._preview_pixmap = None
+        self._full_output_text = ''
+        self._output_truncated = False
+        self.trunc_banner.hide()
+        self.b64_edit.blockSignals(True)
+        self.b64_edit.clear()
+        self.b64_edit.blockSignals(False)
+        self.copy_b64_btn.setEnabled(False)
+        self.export_txt_btn.setEnabled(False)
+        self.save_media_btn.setEnabled(False)
+        self.stats_lbl.setText('')
+        self.status_lbl.setText('')
+        self._show_empty_drop_state()
+
+
 class FormatToolsPanel(QWidget):
     """JSON / XML / SQL / 文本与开发辅助 四 Tab 格式工具。"""
 
@@ -513,6 +1167,9 @@ class FormatToolsPanel(QWidget):
         self.text_tab = _TextDevHelpersTab(self.language)
         self.tabs.addTab(self.text_tab, '文本与开发辅助')
 
+        self.media_base64_tab = _MediaBase64Tab(self.language)
+        self.tabs.addTab(self.media_base64_tab, '图片 / PDF 转 Base64')
+
         from PyQt6.QtWidgets import QScrollArea
         self.workspace_scroll = QScrollArea()
         self.workspace_scroll.setWidgetResizable(True)
@@ -527,17 +1184,17 @@ class FormatToolsPanel(QWidget):
         steps = [
             (
                 self.tabs.tabBar(),
-                '四大离线格式化工具' if zh else 'Four offline format workspaces',
-                '顶部一键切换 JSON（含树视图与 2 万节点快搜）、XML、SQL 和文本/编码辅助，全部离线处理不落盘。'
+                '五大离线格式化与编码工具' if zh else 'Five offline format & encoding tools',
+                '顶部一键切换 JSON（2 万节点快搜）、XML、SQL、文本辅助与新增的「图片 / PDF 转 Base64」，全部离线不上传。'
                 if zh else
-                'Switch between JSON (with fast tree search), XML, SQL, and Text/Encoding tools offline.',
+                'Switch between JSON, XML, SQL, Text helpers, and Image/PDF Base64 completely offline.',
             ),
             (
                 self.tabs,
-                '支持从接口排查一键送入' if zh else 'Seamless handoff from API Debug',
-                '在「接口排查」中点击「送格式工具」可直接把请求/响应报文带入这里美化与定位字段。'
+                '支持双向互转与接口排查联动' if zh else 'Bidirectional convert & API Debug handoff',
+                '图片/PDF 支持拖拽、选文件或粘贴截图转 Base64，也支持粘贴 Base64 还原预览并另存文件；JSON/XML 支持从接口排查一键送入。'
                 if zh else
-                'Payloads sent from API Debug land here formatted and ready to inspect.',
+                'Drop/paste images or PDFs for Base64, decode Base64 back to files, or inspect payloads from API Debug.',
             ),
         ]
         start_guided_tour(self, steps, module_title='格式工具' if zh else 'Format Tools', language=self.language)
@@ -546,7 +1203,7 @@ class FormatToolsPanel(QWidget):
         """刷新常驻 Tab 图标，避免主题切换后保留旧主题色。"""
         try:
             from ui.icons import qicon
-            for index, role in enumerate(('json', 'xml', 'database', 'terminal')):
+            for index, role in enumerate(('json', 'xml', 'database', 'terminal', 'document-id')):
                 self.tabs.setTabIcon(index, qicon(role))
         except Exception:
             pass
@@ -562,10 +1219,19 @@ class FormatToolsPanel(QWidget):
         self.tabs.setTabText(1, 'XML')
         self.tabs.setTabText(2, 'SQL')
         self.tabs.setTabText(3, '文本与开发辅助' if zh else 'Text & Dev helpers')
+        if self.tabs.count() >= 5:
+            self.tabs.setTabText(4, '图片 / PDF 转 Base64' if zh else 'Image & PDF Base64')
         self.json_viewer.set_language(language)
         self.xml_workspace.set_language(language)
         self.sql_tab.set_language(language)
         self.text_tab.set_language(language)
+        if hasattr(self, 'media_base64_tab'):
+            self.media_base64_tab.set_language(language)
+
+    def open_media_base64(self, file_path: str = ''):
+        self.tabs.setCurrentIndex(4)
+        if file_path and hasattr(self, 'media_base64_tab'):
+            self.media_base64_tab.load_file(file_path)
 
     def open_json(self, text: str = ''):
         self.tabs.setCurrentIndex(0)
