@@ -107,6 +107,34 @@ class DocxUpdatePanel(QWidget):
         self._setup_ui()
         self.set_language(language)
 
+    def _start_guided_tour(self):
+        from ui.guided_tour import start_guided_tour
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.file_group,
+                '第一步：选择文档目录与模板' if zh else 'Step 1: Pick folder & template',
+                '先选定存放接口 Word 的目录，左侧列表会自动列出可用 DOCX，点选一条作为本次更新模板。'
+                if zh else
+                'Select your document folder and pick a template DOCX from the left list.',
+            ),
+            (
+                getattr(self, 'sql_editor', None) or self.main_splitter,
+                '第二步：填入或导入变更 SQL' if zh else 'Step 2: Paste or import SQL',
+                '直接粘贴建表 / 改表 SQL，或从「需求管理」一键送入，右侧自动解析字段变更。'
+                if zh else
+                'Paste DDL SQL or send it directly from Requirements to extract field updates.',
+            ),
+            (
+                self.update_btn,
+                '第三步：生成本地更新稿' if zh else 'Step 3: Generate updated DOCX',
+                '点击右上角紫色主按钮生成新的本地 Word 文档，原模板文件安全保留不被破坏。'
+                if zh else
+                'Click the primary button to generate the updated local Word document safely.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='接口文档更新' if zh else 'Interface Docs', language=self.language)
+
     def _setup_ui(self):
         from ui.layout_metrics import SPACING_PAGE
         layout = QVBoxLayout(self)
@@ -116,11 +144,14 @@ class DocxUpdatePanel(QWidget):
         self.update_btn = QPushButton()
         apply_button(self.update_btn, 'primary', compact=True)
         self.update_btn.clicked.connect(self._update_document)
+        from ui.guided_tour import make_guide_button
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, self)
         header, self.page_title, self.page_subtitle = make_page_header(
             '接口文档更新',
             '选文档，填 SQL，生成本地稿',
             'doc-update',
             primary_button=self.update_btn,
+            trailing=self.guide_btn,
         )
         layout.addWidget(header)
 

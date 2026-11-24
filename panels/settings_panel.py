@@ -214,21 +214,17 @@ class SettingsPanel(QWidget):
         self.set_language(language)
 
     def _setup_ui(self):
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        content = QWidget()
-        content.setObjectName('settings-workspace')
-        content.setMaximumWidth(1040)
-        outer.addWidget(content, 1)
-        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        root = QVBoxLayout(content)
+        root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(14)
+        from ui.guided_tour import make_guide_button
         from ui.page_chrome import make_page_header
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, self)
         header, self.title, self.subtitle = make_page_header(
             '设置',
-            '外观与本机偏好',
+            '外观、模型服务与本机偏好',
             'settings',
+            trailing=self.guide_btn,
         )
         root.addWidget(header)
         self.title.installEventFilter(self)
@@ -240,10 +236,10 @@ class SettingsPanel(QWidget):
         root.addWidget(self.section_picker)
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(24)
+        body.setSpacing(16)
         self.section_nav = QListWidget()
         self.section_nav.setObjectName('settings-section-nav')
-        self.section_nav.setFixedWidth(180)
+        self.section_nav.setFixedWidth(196)
         self.section_nav.setAccessibleName('设置分类')
         body.addWidget(self.section_nav)
         self.sections_stack = QStackedWidget()
@@ -1051,6 +1047,34 @@ class SettingsPanel(QWidget):
             QEvent.Type.StyleChange,
         ):
             self._schedule_ai_provider_control_fit()
+
+    def _start_guided_tour(self):
+        from ui.guided_tour import start_guided_tour
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.section_nav,
+                '按分类快速定位设置项' if zh else 'Browse settings by category',
+                '左侧按「外观」「悬浮工具栏」「提醒与关闭」「安全与安测」「数据库客户端」「模型服务」分组，点选立即切换。'
+                if zh else
+                'Pick any category on the left to jump straight to Appearance, Floating Bar, Reminders, or Model Services.',
+            ),
+            (
+                self.sections_stack,
+                '调整本机偏好与内网模型' if zh else 'Edit preferences & intranet LLM',
+                '右侧修改字号、语言、日报提醒时间或添加内网大模型（切到「模型服务」可添加多个模型并测连通性）。'
+                if zh else
+                'Configure font size, language, daily reminders, or intranet LLM profiles on the right.',
+            ),
+            (
+                getattr(self, 'save_btn', None),
+                '应用并保存生效' if zh else 'Apply and save changes',
+                '修改完一般偏好后点右下角「应用并保存偏好」立即生效；所有配置仅保存在本机 data/ 目录。'
+                if zh else
+                'Click Apply preferences to save locally into your data/ folder.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='设置' if zh else 'Settings', language=self.language)
 
     def _select_section(self, index):
         if not 0 <= index < self.sections_stack.count():

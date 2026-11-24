@@ -480,10 +480,13 @@ class FormatToolsPanel(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
+        from ui.guided_tour import make_guide_button
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, self)
         header, self.page_title, self.page_subtitle = make_page_header(
             '格式工具',
             '离线整理，不落盘',
             'json',
+            trailing=self.guide_btn,
         )
         root.addWidget(header)
 
@@ -517,6 +520,27 @@ class FormatToolsPanel(QWidget):
         self.workspace_scroll.setWidget(self.tabs)
         root.addWidget(self.workspace_scroll, 1)
         self.refresh_theme()
+
+    def _start_guided_tour(self):
+        from ui.guided_tour import start_guided_tour
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.tabs.tabBar(),
+                '四大离线格式化工具' if zh else 'Four offline format workspaces',
+                '顶部一键切换 JSON（含树视图与 2 万节点快搜）、XML、SQL 和文本/编码辅助，全部离线处理不落盘。'
+                if zh else
+                'Switch between JSON (with fast tree search), XML, SQL, and Text/Encoding tools offline.',
+            ),
+            (
+                self.tabs,
+                '支持从接口排查一键送入' if zh else 'Seamless handoff from API Debug',
+                '在「接口排查」中点击「送格式工具」可直接把请求/响应报文带入这里美化与定位字段。'
+                if zh else
+                'Payloads sent from API Debug land here formatted and ready to inspect.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='格式工具' if zh else 'Format Tools', language=self.language)
 
     def refresh_theme(self):
         """刷新常驻 Tab 图标，避免主题切换后保留旧主题色。"""

@@ -118,11 +118,14 @@ class SqlToolPanel(QWidget):
         self._page_root_layout = root
 
         try:
+            from ui.guided_tour import make_guide_button
             from ui.page_chrome import make_page_header
+            self.guide_btn = make_guide_button(self._start_guided_tour, self.language, self)
             header, self.page_title, self.page_subtitle = make_page_header(
                 '升级准备',
                 '勾选需求，生成 SQL 与发版资料',
                 'release',
+                trailing=self.guide_btn,
             )
             root.addWidget(header)
         except Exception:
@@ -139,6 +142,34 @@ class SqlToolPanel(QWidget):
         root.addWidget(self.tabs, 1)
         # 浮层 Loading：不进 layout，避免导出/预览时按钮与分区跳动
         self.progress = AuroraProgress(self)
+
+    def _start_guided_tour(self):
+        from ui.guided_tour import start_guided_tour
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.release_date,
+                '第一步：选定升级日期' if zh else 'Step 1: Choose release date',
+                '先确认本次发版日期，系统会自动推荐该日期前后需要参与升级的需求与 BUG。'
+                if zh else
+                'Pick the target release date to load candidate requirements and bugs.',
+            ),
+            (
+                self.tabs.tabBar(),
+                '第二步：勾选需求并核对 SQL' if zh else 'Step 2: Select items & review SQL',
+                '在「升级准备」勾选参与需求后，切到「SQL 整理」按系统核对并清洗脚本，不熟悉路径可在「系统配置」统一维护。'
+                if zh else
+                'Select requirements, then switch to SQL Processing to organize scripts per system.',
+            ),
+            (
+                getattr(self, 'release_export_btn', None) or self.tabs,
+                '第三步：一键生成发版 Excel' if zh else 'Step 3: Export release workbook',
+                '确认清单无误后即可按 23 列标准模板导出生产发版 Excel，无需手工对齐表头。'
+                if zh else
+                'Export the standardized 23-column release Excel workbook in one click.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='发版联动' if zh else 'Release Link', language=self.language)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
