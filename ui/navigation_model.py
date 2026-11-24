@@ -36,8 +36,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# 默认悬浮快捷：需求管理、升级准备、日报、加解密
-DEFAULT_FLOATING_SHORTCUTS = [10, 2, 9, 5]
+# 默认悬浮快捷：需求管理、升级准备、日报、日志排查
+DEFAULT_FLOATING_SHORTCUTS = [10, 2, 9, 13]
 MAX_FLOATING_SHORTCUTS = 6
 
 # 六类旧入口映射：(name_zh, dialect, nav_index, icon_role)，仅用于兼容路由。
@@ -74,11 +74,9 @@ NAV_MODEL = [
         (6, '命令库', 'Command Library', 'operations'),
     ]),
     ('devtools', [
-        (5, '加解密', 'Crypto', 'shield-key'),
         (12, '接口排查', 'API Debug', 'api-debug'),
         (11, '格式工具', 'Format Tools', 'json'),
-        (1, '证件类型', 'Documents', 'document-id'),
-        (4, '车辆 VIN', 'Vehicle VIN', 'vin'),
+        (1, '测试数据', 'Test Data', 'document-id'),
     ]),
     ('personal', [
         (8, '自我学习', 'Learning', 'learning'),
@@ -132,12 +130,12 @@ class NavItem:
 def _build_items() -> dict[int, NavItem]:
     tooltips = {
         0: ('打开完整工作台首页', 'Open full workspace home'),
-        1: ('个人与单位证件模拟生成', 'Personal and unit document test data'),
+        1: ('个人/单位证件与车辆 VIN 离线模拟生成', 'Offline ID documents and vehicle VIN test data'),
         2: ('发版联动：需求/BUG、SQL 与发版 Excel', 'Release link: requirements, SQL and workbook'),
         3: ('SQL 驱动接口文档更新', 'SQL-driven interface document updater'),
-        4: ('中国车辆 VIN 测试数据', 'China vehicle VIN test data'),
-        5: ('网关国密解密 · 解密后 JSON 查看', 'Gateway SM decrypt with JSON result view'),
-        6: ('Linux 运维命令搜索与安全引导（只生成/复制，不连机）', 'Linux ops command library (generate/copy only)'),
+        4: ('中国车辆 VIN 测试数据（已并入测试数据）', 'China vehicle VIN test data (merged into Test Data)'),
+        5: ('网关国密解密（已隐藏）', 'Gateway SM decrypt (hidden)'),
+        6: ('Linux / Java 运维命令与 AI / 日志排查联动', 'Linux & JVM commands with AI and Log Inspect linkage'),
         7: ('界面与悬浮工具栏设置', 'Interface and floating toolbar settings'),
         8: ('自我学习资料整理与全文搜索', 'Learning library and full-text search'),
         9: ('每日日报与定时提醒', 'Daily reports and reminders'),
@@ -156,8 +154,8 @@ def _build_items() -> dict[int, NavItem]:
         22: ('Redis 工作台：Key 树浏览、TTL 管理与命令行', 'Redis workbench: key tree, TTL and CLI'),
         23: ('MongoDB 工作台：集合树、文档浏览器与 Shell', 'MongoDB workbench: collections, documents and shell'),
     }
-    # 首页、数据中心和模型父级不进悬浮快捷位。
-    floating_ok = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 17}
+    # 首页、数据中心、模型父级以及已合并/下线的 4(VIN)、5(加解密) 不进悬浮快捷位。
+    floating_ok = {1, 2, 3, 6, 8, 9, 10, 11, 12, 13, 16, 17}
     items: dict[int, NavItem] = {}
     for group_key, entries in NAV_MODEL:
         for nav_index, name_zh, name_en, icon_role in entries:
@@ -186,8 +184,10 @@ def _build_items() -> dict[int, NavItem]:
             floating_eligible=False, requires_easter_egg=False,
             tooltip_zh=tip[0], tooltip_en=tip[1],
         )
-    # The AI group ID remains non-page metadata for the legacy sidebar.
+    # Legacy entries (4=VIN merged into 1=Test Data, 5=Crypto hidden) kept for compat lookups only.
     for nav_index, name_zh, name_en, icon_role, group_key in (
+        (4, '车辆 VIN', 'Vehicle VIN', 'vin', 'devtools-compat'),
+        (5, '加解密', 'Crypto', 'shield-key', 'devtools-hidden'),
         (AI_PARENT_NAV, '模型', 'AI', 'chat', 'ai'),
     ):
         items[nav_index] = NavItem(
@@ -213,8 +213,8 @@ def _build_items() -> dict[int, NavItem]:
 
 NAV_ITEMS: dict[int, NavItem] = _build_items()
 
-# 编辑列表展示顺序（不含首页、设置、父级 14/15）
-FLOATING_EDIT_ORDER = [16, 17, 10, 2, 3, 9, 5, 13, 6, 12, 11, 1, 4, 8]
+# 编辑列表展示顺序（不含首页、设置、父级 14/15 及已合并/下线的 4/5）
+FLOATING_EDIT_ORDER = [16, 17, 10, 2, 3, 9, 13, 6, 12, 11, 1, 8]
 
 # ---------------------------------------------------------------------------
 # 导航索引工具函数
@@ -256,12 +256,16 @@ def is_parent_nav(index: int) -> bool:
 
 
 def canonical_nav_index(index: int) -> int:
-    """Map legacy database entry IDs to the single Data Center page ID."""
+    """Map legacy database IDs to Data Center and legacy VIN (4) to merged Test Data (1)."""
     try:
         value = int(index)
     except (TypeError, ValueError):
         return -1
-    return DATA_CENTER_NAV if nav_is_db_slot(value) else value
+    if nav_is_db_slot(value):
+        return DATA_CENTER_NAV
+    if value == 4:
+        return 1
+    return value
 
 
 def get_nav_item(index: int) -> NavItem | None:
@@ -338,7 +342,7 @@ def normalize_floating_shortcuts(
     return result
 
 
-DASHBOARD_QUICK_TOOL_INDICES = (DATA_CENTER_NAV, 16, 12, 13, 5, 11)
+DASHBOARD_QUICK_TOOL_INDICES = (DATA_CENTER_NAV, 16, 12, 13, 6, 11)
 
 
 def get_dashboard_quick_tools() -> list[dict]:

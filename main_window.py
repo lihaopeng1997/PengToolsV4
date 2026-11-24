@@ -950,12 +950,11 @@ class MainWindow(QMainWindow):
 
     def _warmup_boot_steps(self):
         zh = self.language == 'zh'
+        # 已下线隐藏「加解密」(5) 并把「车辆 VIN」(4) 合并进「测试数据」(1)，减少启动预热开销
         return [
-            ('证件' if zh else 'Identity', self._ensure_credit_panel),
-            ('VIN' if zh else 'VIN', self._ensure_vin_panel),
-            ('运维' if zh else 'Operations', self._ensure_ops_panel),
-            ('网关' if zh else 'Gateway', self._ensure_gateway_panel),
-            ('SQL' if zh else 'SQL', self._ensure_sql_panel),
+            ('测试数据' if zh else 'Test Data', self._ensure_credit_panel),
+            ('命令库' if zh else 'Commands', self._ensure_ops_panel),
+            ('发版联动' if zh else 'Release Link', self._ensure_sql_panel),
             ('接口文档' if zh else 'API docs', self._ensure_docx_panel),
             ('格式工具' if zh else 'Format tools', self._ensure_format_panel),
             ('需求管理' if zh else 'Requirements', self._ensure_requirement_panel),
@@ -1152,12 +1151,10 @@ class MainWindow(QMainWindow):
                     pass
 
     def _complete_startup_sync(self):
-        """测试/同步模式：一次建齐常用面板（接口/日志仍按需）。"""
+        """测试/同步模式：一次建齐常用面板（接口/日志仍按需；已下线的加解密不再创建）。"""
         self._ensure_settings_panel()
         self._ensure_credit_panel()
-        self._ensure_vin_panel()
         self._ensure_ops_panel()
-        self._ensure_gateway_panel()
         self._ensure_sql_panel()
         self._ensure_docx_panel()
         self._ensure_format_panel()
@@ -2393,6 +2390,14 @@ class MainWindow(QMainWindow):
             requested_index = int(index)
         except (TypeError, ValueError):
             return False
+        if requested_index == 5:
+            # 加解密模块已下线隐藏，不再实例化或跳转
+            if hasattr(self, 'status_bar') and self.status_bar is not None:
+                self.status_bar.showMessage(
+                    '加解密模块已下线隐藏' if self.language == 'zh' else 'Crypto module has been retired',
+                    3000,
+                )
+            return False
         index = canonical_nav_index(requested_index)
         if index < 0:
             return False
@@ -2438,6 +2443,9 @@ class MainWindow(QMainWindow):
                 panel = getattr(self, _DATA_CENTER_ATTR, None)
                 if panel is not None:
                     panel.focus_legacy_nav(requested_index)
+            elif index == 1 and requested_index == 4 and self.credit_panel is not None:
+                if hasattr(self.credit_panel, 'select_vin_tab'):
+                    self.credit_panel.select_vin_tab()
         except Exception as exc:
             self._hide_startup_loading()
             self.status_bar.showMessage(f'打开页面失败：{exc}', 5000)

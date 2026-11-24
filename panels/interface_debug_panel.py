@@ -633,10 +633,10 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.format_req_btn, 'secondary', compact=True, icon='json', icon_size=16)
         self.format_req_btn.clicked.connect(lambda: self._send_body_side('request', 'format'))
         req_tools.addWidget(self.format_req_btn)
-        self.gateway_req_btn = QPushButton()
+        self.gateway_req_btn = QPushButton(req_page)
         apply_button(self.gateway_req_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.gateway_req_btn.clicked.connect(lambda: self._send_body_side('request', 'gateway'))
-        req_tools.addWidget(self.gateway_req_btn)
+        self.gateway_req_btn.hide()  # 加解密模块已下线隐藏，保留兼容属性
         self.req_actions_more_btn, self._req_actions_menu = self._make_overflow_button(req_tools)
         req_tools.addStretch(1)
         rq.addLayout(req_tools)
@@ -661,10 +661,10 @@ class InterfaceDebugPanel(QWidget):
         apply_button(self.format_resp_btn, 'secondary', compact=True, icon='json', icon_size=16)
         self.format_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'format'))
         resp_tools.addWidget(self.format_resp_btn)
-        self.gateway_resp_btn = QPushButton()
+        self.gateway_resp_btn = QPushButton(resp_page)
         apply_button(self.gateway_resp_btn, 'secondary', compact=True, icon='shield-key', icon_size=16)
         self.gateway_resp_btn.clicked.connect(lambda: self._send_body_side('response', 'gateway'))
-        resp_tools.addWidget(self.gateway_resp_btn)
+        self.gateway_resp_btn.hide()  # 加解密模块已下线隐藏，保留兼容属性
         self.resp_actions_more_btn, self._resp_actions_menu = self._make_overflow_button(resp_tools)
         resp_tools.addStretch(1)
         rs.addLayout(resp_tools)
@@ -1120,19 +1120,19 @@ class InterfaceDebugPanel(QWidget):
         self._refresh_capture_status_text()
 
         detail_compact = right_width < 500
-        self._set_widgets_visible((self.format_req_btn, self.gateway_req_btn), not detail_compact)
+        self._set_widgets_visible((self.format_req_btn,), not detail_compact)
+        self.gateway_req_btn.hide()
         self.req_actions_more_btn.setVisible(detail_compact)
         if detail_compact:
             self._rebuild_overflow_menu(self._req_actions_menu, [
                 ('送格式工具' if self.language == 'zh' else 'Format tools', lambda: self._send_body_side('request', 'format')),
-                ('送入加解密' if self.language == 'zh' else 'Crypto', lambda: self._send_body_side('request', 'gateway')),
             ])
-        self._set_widgets_visible((self.format_resp_btn, self.gateway_resp_btn), not detail_compact)
+        self._set_widgets_visible((self.format_resp_btn,), not detail_compact)
+        self.gateway_resp_btn.hide()
         self.resp_actions_more_btn.setVisible(detail_compact)
         if detail_compact:
             self._rebuild_overflow_menu(self._resp_actions_menu, [
                 ('送格式工具' if self.language == 'zh' else 'Format tools', lambda: self._send_body_side('response', 'format')),
-                ('送入加解密' if self.language == 'zh' else 'Crypto', lambda: self._send_body_side('response', 'gateway')),
             ])
 
         self._adaptive_table_width = table_width

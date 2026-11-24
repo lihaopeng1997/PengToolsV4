@@ -21,22 +21,17 @@ from ui.page_chrome import make_page_header, make_page_toolbar
 
 
 class VinPanel(QWidget):
-    def __init__(self, language='zh'):
+    def __init__(self, language='zh', *, embedded: bool = False):
         super().__init__()
         self.language = language
+        self._embedded = bool(embedded)
         self._results = []
         self._setup_ui()
         self.set_language(language)
         self._pending_fill = True
 
     def _setup_ui(self):
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        content = QWidget()
-        content.setMaximumWidth(1180)
-        outer.addWidget(content, 1)
-        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        layout = QVBoxLayout(content)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         self.generate_btn = QPushButton()
@@ -46,9 +41,13 @@ class VinPanel(QWidget):
             '车辆 VIN',
             '离线测试数据，不落盘',
             'vin',
-            primary_button=self.generate_btn,
+            primary_button=None if self._embedded else self.generate_btn,
         )
-        layout.addWidget(header)
+        self._header = header
+        if self._embedded:
+            header.hide()
+        else:
+            layout.addWidget(header)
 
         # 单层纯白工作面：参数压成顶部一行工具条 + 细线 + 表格 + 底栏
         sheet = QFrame()
@@ -91,6 +90,9 @@ class VinPanel(QWidget):
         row.addWidget(self.qty_label)
         self.qty = CompactStepper(1, 200, 10)
         row.addWidget(self.qty)
+        if self._embedded:
+            row.addSpacing(8)
+            row.addWidget(self.generate_btn)
         row.addStretch(1)
         sheet_l.addWidget(toolbar)
 

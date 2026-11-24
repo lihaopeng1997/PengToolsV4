@@ -19,6 +19,7 @@ from tools.id_documents import (
 from tools.china_regions import REGIONS
 from ui.design_system import apply_button
 from ui.field_metrics import CompactStepper, apply_caption, size_enum_combo, size_pick_combo
+from ui.guided_tour import make_guide_button, start_guided_tour
 from ui.page_chrome import make_page_header
 
 
@@ -59,30 +60,30 @@ class CreditCodePanel(QWidget):
         self.set_language('zh')
 
     def _setup_ui(self):
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        content = QWidget()
-        content.setMaximumWidth(1180)
-        outer.addWidget(content, 1)
-        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        root = QVBoxLayout(content)
+        root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(12)
+        self._root_layout = root
 
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, self)
         header, self.title, self.subtitle = make_page_header(
-            '证件类型',
-            '离线测试数据，不落盘',
+            '测试数据',
+            '个人证件 / 单位证件 / 车辆 VIN 离线模拟生成，不落盘',
             'document-id',
+            trailing=self.guide_btn,
         )
         root.addWidget(header)
         self.page_title = self.title
         self.page_subtitle = self.subtitle
 
+        from panels.vin_panel import VinPanel
+        self.vin_panel = VinPanel(self.language, embedded=True)
         self.category_tabs = QTabWidget()
         self.category_tabs.setObjectName('module-tabs')
         self.category_tabs.setDocumentMode(False)
         self.category_tabs.addTab(self._create_personal_tab(), '')
         self.category_tabs.addTab(self._create_unit_tab(), '')
+        self.category_tabs.addTab(self.vin_panel, '')
         self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.category_tabs.currentChanged.connect(self._on_category_tab_changed)
         root.addWidget(self.category_tabs, 0)
@@ -118,7 +119,9 @@ class CreditCodePanel(QWidget):
         self.table.itemDoubleClicked.connect(self._copy_cell)
         root.addWidget(self.table, 1)
 
-        bottom = QHBoxLayout()
+        self._bottom_host = QWidget(self)
+        bottom = QHBoxLayout(self._bottom_host)
+        bottom.setContentsMargins(0, 0, 0, 0)
         bottom.setSpacing(8)
         self.result_label = QLabel()
         self.result_label.setObjectName('small-label')
@@ -136,7 +139,7 @@ class CreditCodePanel(QWidget):
         apply_button(self.clear_btn, 'ghost', compact=True)
         self.clear_btn.clicked.connect(self._clear)
         bottom.addWidget(self.clear_btn)
-        root.addLayout(bottom)
+        root.addWidget(self._bottom_host)
 
     @staticmethod
     def _filter_card():
@@ -436,8 +439,59 @@ class CreditCodePanel(QWidget):
         self._fit_fixed_combos()
         self._sync_tab_height()
 
+    def select_vin_tab(self):
+        """供旧「车辆 VIN」快捷方式兼容跳转，直接切到第 3 个页签。"""
+        if hasattr(self, 'category_tabs') and self.category_tabs.count() >= 3:
+            self.category_tabs.setCurrentIndex(2)
+
+    def _start_guided_tour(self):
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.category_tabs.tabBar(),
+                '一站式切换 3 类测试数据' if zh else 'Switch 3 test data generators',
+                '「个人证件」「单位证件」与「车辆 VIN」已合并在同一页面，点击上方页签即可切换，全宽对齐无留白。'
+                if zh else
+                'Personal IDs, Unit USCC, and Vehicle VIN are merged here in one full-width workspace.',
+            ),
+            (
+                self.personal_generate if self.category_tabs.currentIndex() == 0 else (
+                    self.unit_generate if self.category_tabs.currentIndex() == 1 else self.vin_panel.generate_btn
+                ),
+                '按条件或全随机批量生成' if zh else 'Generate random or custom batches',
+                '支持全随机与按省市区/年龄/车型/能源类型定向生成，所有号码均通过校验位算法且离线不落盘。'
+                if zh else
+                'Generate random or filtered batches offline with valid check digits.',
+            ),
+            (
+                self.table if self.category_tabs.currentIndex() != 2 else self.vin_panel.table,
+                '双击单格复制或一键导出 CSV' if zh else 'Double-click to copy or export CSV',
+                '双击任意单元格立即复制单个值，也可在底部一键复制全部或导出为 CSV 测试文件。'
+                if zh else
+                'Double-click any cell to copy, or use Copy All / Export CSV at the bottom.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='测试数据' if zh else 'Test Data', language=self.language)
+
     def _sync_tab_height(self):
-        """QTabWidget 默认按最高一页定高，个人指定条件不能把单位页一起撑高。"""
+        """证件页按当前条件卡紧贴定高；切到车辆 VIN 页签时整页拉伸铺满。"""
+        is_vin = self.category_tabs.currentIndex() == 2
+        if hasattr(self, 'table'):
+            self.table.setVisible(not is_vin)
+        if hasattr(self, '_bottom_host'):
+            self._bottom_host.setVisible(not is_vin)
+        if is_vin and hasattr(self, 'format_note'):
+            self.format_note.hide()
+        if is_vin:
+            self.category_tabs.setMinimumHeight(0)
+            self.category_tabs.setMaximumHeight(16777215)
+            self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            if hasattr(self, '_root_layout'):
+                self._root_layout.setStretchFactor(self.category_tabs, 1)
+            return
+        if hasattr(self, '_root_layout'):
+            self._root_layout.setStretchFactor(self.category_tabs, 0)
+        self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         current = self.category_tabs.currentWidget()
         if current is None:
             return
@@ -461,6 +515,8 @@ class CreditCodePanel(QWidget):
 
     def _on_category_tab_changed(self, *_):
         self._sync_tab_height()
+        if self.category_tabs.currentIndex() == 2:
+            return
         self._update_table()
         if self._results:
             self._show_result(len(self._results), len(self._results))
@@ -629,10 +685,20 @@ class CreditCodePanel(QWidget):
     def set_language(self, language):
         self.language = language
         zh = language == 'zh'
-        self.title.setText('证件类型' if zh else 'Documents')
-        self.subtitle.setText('离线测试数据，不落盘' if zh else 'Offline test data. Nothing is saved.')
+        self.title.setText('测试数据' if zh else 'Test Data')
+        self.subtitle.setText(
+            '个人证件 / 单位证件 / 车辆 VIN 离线模拟生成，不落盘'
+            if zh else
+            'Offline ID documents & vehicle VIN test data. Nothing is saved.'
+        )
+        if hasattr(self, 'guide_btn'):
+            self.guide_btn.setText('引导' if zh else 'Guide')
         self.category_tabs.setTabText(0, '个人证件' if zh else 'Personal Documents')
         self.category_tabs.setTabText(1, '单位证件' if zh else 'Unit Documents')
+        if self.category_tabs.count() >= 3:
+            self.category_tabs.setTabText(2, '车辆 VIN' if zh else 'Vehicle VIN')
+        if hasattr(self, 'vin_panel') and self.vin_panel is not None:
+            self.vin_panel.set_language(language)
         self.personal_type_label.setText('证件类型' if zh else 'Type')
         for index, (_, labels) in enumerate(DOCUMENT_TYPES.items()):
             self.personal_type.setItemText(index, labels[0 if zh else 1])
