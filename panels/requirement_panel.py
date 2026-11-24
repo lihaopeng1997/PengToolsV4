@@ -1565,6 +1565,16 @@ class RequirementPanel(QWidget):
         from ui.requirement_workflow_editor import workflow_events
         workflow_events.changed.connect(self._reload_workflow)
 
+    def _start_guided_tour(self):
+        from ui.guided_tour import start_guided_tour
+        steps = [
+            (self.add_btn, '新增或导入需求', '点击「新建需求」手工登记；点旁边「更多 ▾」可批量从 SVN 路径或本地目录导入。'),
+            (self.search_edit, '中文与拼音秒搜', '输入中文按原文精准匹配，输入字母或首字母走拼音检索，右侧可按月份、系统和类型组合筛选。'),
+            (self.stage_bar, '点击节点推进阶段', '选中左侧需求后，直接点击进度条节点即可推进阶段；下方集中查看文件库、测试点与关联 SQL。'),
+            (self.daily_btn, '一键写日报与提签', '点击「写日报」把当前进展自动带入日报；完成后在顶栏「更多 ▾」里可一键提签。'),
+        ]
+        start_guided_tour(self, steps, module_title='需求管理', language='zh')
+
     def _sync_toolbar_more_menu(self):
         """同步更多菜单中的各项操作状态。"""
         has_active_worker = self._active_worker is not None
@@ -1651,9 +1661,13 @@ class RequirementPanel(QWidget):
         self.ticket_btn.clicked.connect(self._open_ticket_submit)
         for button in (self.update_all_btn, self.ticket_btn, self.add_btn, self.toolbar_more_btn):
             size_compact_button(button)
-        # 顶栏仅保留高频主操作「新建需求」与「更多 ▾」，「拉取最新」「一键提签」收纳进「更多」且保留原按钮属性兼容
+        # 顶栏仅保留高频主操作「新建需求」、「更多 ▾」与轻量「引导」，「拉取最新」「一键提签」收纳进「更多」且保留原按钮属性兼容
+        from ui.guided_tour import make_guide_button
+        self.guide_btn = make_guide_button(self._start_guided_tour, 'zh', toolbar_card)
+        size_compact_button(self.guide_btn)
         toolbar_layout.addWidget(self.add_btn)
         toolbar_layout.addWidget(self.toolbar_more_btn)
+        toolbar_layout.addWidget(self.guide_btn)
         self.update_all_btn.hide()
         self.ticket_btn.hide()
         try:
@@ -1818,20 +1832,6 @@ class RequirementPanel(QWidget):
         self.stage_caption.setTextFormat(Qt.TextFormat.RichText)
         card.addWidget(self.stage_caption)
         self.stage_caption.hide()  # 步骤条已显示阶段名与细状态
-
-        from ui.page_chrome import make_onboarding_guide
-        self.detail_onboarding = make_onboarding_guide(
-            '3 步上手需求管理',
-            [
-                ('新建或导入需求', '点顶栏紫色「新建需求」，或在「更多 ▾」里通过 SVN / 本地目录批量导入'),
-                ('推进阶段与管文件', '点击上方进度节点改阶段，下方直接看需求文件库、测试点和 SQL 脚本'),
-                ('写日报与一键提签', '点「写日报」自动带入进展，完成后在顶栏「更多 ▾」里一键提签'),
-            ],
-            compact=True,
-            parent=self.detail_card,
-        )
-        self.detail_onboarding.hide()
-        card.addWidget(self.detail_onboarding)
 
         # 快捷动作：日常最常用的四个，复用既有处理函数
         quick = QHBoxLayout(); quick.setSpacing(6)
@@ -3414,19 +3414,6 @@ class RequirementPanel(QWidget):
             self.detail_eyebrow.setText('')
             self.stage_bar.set_status('')
             self.stage_caption.setText('')
-            if hasattr(self, 'detail_onboarding'):
-                if not self._requirements:
-                    self.detail_onboarding.set_content(
-                        '3 步上手需求管理',
-                        [
-                            ('新建或导入需求', '点顶栏紫色「新建需求」，或在「更多 ▾」里通过 SVN / 本地目录批量导入'),
-                            ('推进阶段与管文件', '点击进度节点推进状态，下方集中管理需求文件库、测试点与 SQL'),
-                            ('写日报与一键提签', '点「写日报」自动带入进展，完成后在顶栏「更多 ▾」里一键提签'),
-                        ],
-                    )
-                    self.detail_onboarding.show()
-                else:
-                    self.detail_onboarding.hide()
             self.open_dev_btn.setEnabled(False)
             for btn in self._flag_buttons.values():
                 btn.hide()
@@ -3446,8 +3433,6 @@ class RequirementPanel(QWidget):
             self.test_points_editor.set_source(points=[], description='')
             return
 
-        if hasattr(self, 'detail_onboarding'):
-            self.detail_onboarding.hide()
         requirement = normalize_requirement(self._current)
         self._current = next((item for item in self._requirements if item.get('id') == requirement.get('id')), requirement)
         title = requirement.get('title') or '未命名需求'

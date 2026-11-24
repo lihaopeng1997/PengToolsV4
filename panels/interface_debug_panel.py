@@ -73,7 +73,8 @@ from ui.confirm_dialog import (
 from ui.design_system import apply_button, apply_surface
 from ui.field_metrics import apply_caption, size_combo, size_enum_combo, size_pick_combo
 from ui.key_value_editor import KeyValueEditor
-from ui.page_chrome import make_onboarding_guide, make_page_header, make_page_toolbar
+from ui.guided_tour import make_guide_button, start_guided_tour
+from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs, layout_bucket
 from ui.table_utils import autofit_columns
 
@@ -345,6 +346,8 @@ class InterfaceDebugPanel(QWidget):
         self.restore_proxy_btn.hide()
         self.capture_actions_more_btn, self._capture_actions_menu = self._make_overflow_button(page_tool_l)
         self.capture_actions_more_btn.show()
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, page_toolbar)
+        page_tool_l.addWidget(self.guide_btn)
         self.toolbar_hint = QLabel()
         self.toolbar_hint.setObjectName('field-hint')
         self.toolbar_hint.setWordWrap(True)
@@ -577,17 +580,6 @@ class InterfaceDebugPanel(QWidget):
         self.empty_hint.setWordWrap(True)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ll.addWidget(self.empty_hint)
-        self.empty_guide = make_onboarding_guide(
-            '3 步开始接口抓包',
-            [
-                ('点击右上角「开始监听」', '自动启用本机抓包代理（首次抓 HTTPS 请在上方「更多 ▾」安装证书）'),
-                ('重开浏览器访问目标页面', '完全退出并重新打开 Chrome / Edge，正常操作业务触发接口请求'),
-                ('点击左侧请求查详情与解密', '右侧直接查看请求头、响应体，或一键送入格式工具 / 加解密'),
-            ],
-            compact=True,
-            parent=left,
-        )
-        ll.addWidget(self.empty_guide)
         self._session_list_widget = left
         self.mid_splitter.addWidget(left)
 
@@ -2505,27 +2497,47 @@ class InterfaceDebugPanel(QWidget):
         if not active and hasattr(self, 'recheck_btn'):
             self.recheck_btn.hide()
 
+    def _start_guided_tour(self):
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.capture_toggle_btn,
+                '开启抓包监听' if zh else 'Start capture listening',
+                '点击右上角「开始监听」自动启动本机抓包代理；停止监听时会自动恢复系统代理。'
+                if zh else
+                'Click Start listen to launch the local proxy; stopping restores the system proxy automatically.',
+            ),
+            (
+                self.capture_actions_more_btn,
+                'HTTPS 证书与代理恢复' if zh else 'HTTPS cert & proxy recovery',
+                '首次抓取 HTTPS 明文需在此菜单安装本机根证书（随时可移除）；异常断网也可一键恢复代理。'
+                if zh else
+                'Install/remove the local HTTPS CA certificate or restore the Windows system proxy here.',
+            ),
+            (
+                self._session_list_widget,
+                '重开浏览器查看请求列表' if zh else 'Restart browser to capture requests',
+                '完全退出并重开 Chrome / Edge 访问业务页，请求会实时显示在这里，支持关键词与状态筛选。'
+                if zh else
+                'Restart Chrome/Edge and use your app; captured requests stream here with instant filtering.',
+            ),
+            (
+                self.detail_workspace,
+                '查看报文与一键联动解密' if zh else 'Inspect payload & send to tools',
+                '选中左侧任意请求可在右侧查看概览、请求体和响应体，还能一键送入「格式工具」或「加解密」。'
+                if zh else
+                'Inspect headers and bodies here, or send payloads directly to Format Tools / Crypto.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='接口排查' if zh else 'API Debug', language=self.language)
+
     def _update_empty_hint(self):
         zh = self.language == 'zh'
         has_records = bool(self._records)
         shown = len(getattr(self, '_filtered', ()) or ())
-        if hasattr(self, 'empty_guide'):
-            self.empty_guide.set_content(
-                '3 步开始接口抓包' if zh else 'Start capturing in 3 steps',
-                [
-                    ('点击右上角「开始监听」', '自动启用本机抓包代理（首次抓 HTTPS 请在上方「更多 ▾」安装证书）'),
-                    ('重开浏览器访问目标页面', '完全退出并重新打开 Chrome / Edge，正常操作业务触发接口请求'),
-                    ('点击左侧请求查详情与解密', '右侧直接查看请求头、响应体，或一键送入格式工具 / 加解密'),
-                ] if zh else [
-                    ('Click "Start listen"', 'Enables local capture proxy (install HTTPS cert under More if needed).'),
-                    ('Restart browser & open app', 'Fully restart Chrome/Edge and trigger requests on your target page.'),
-                    ('Inspect & decrypt details', 'Click any captured row to view headers/body or send to Crypto/Format.'),
-                ],
-            )
-            self.empty_guide.setVisible(not has_records and not (self._listening and self._channel_ready))
         if self._listening and self._channel_ready and not has_records:
             self.empty_hint.setText(
-                '抓包中，等待请求…\n请用浏览器打开业务页面并操作，列表会实时显示 method / URL / 状态。'
+                '抓包中，等待请求… 用浏览器打开业务页面并操作即可实时捕获。'
                 if zh else
                 'Capturing — open your browser and use the app; URL list will fill in.'
             )
@@ -2537,12 +2549,14 @@ class InterfaceDebugPanel(QWidget):
                 'No requests match the current filter.'
             )
             self.empty_hint.setVisible(True)
-        else:
+        elif not has_records:
             self.empty_hint.setText(
-                '点「开始监听」→ 完全退出并重新打开 Chrome/Edge → 再访问业务页。'
+                '尚未捕获请求 · 点击右上角「开始监听」，不熟悉流程可点上方「引导」。'
                 if zh else
-                'Start listen → fully restart Chrome/Edge → open your app pages.'
+                'No captures yet — click Start listen, or open Guide above.'
             )
+            self.empty_hint.setVisible(True)
+        else:
             self.empty_hint.setVisible(False)
 
     def _confirm_clear_session(self):

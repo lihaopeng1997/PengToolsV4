@@ -44,7 +44,8 @@ from ui.dialog_buttons import clamp_dialog_geometry
 from ui.field_metrics import CompactStepper, apply_form, size_combo, size_line, size_pick_combo
 from ui.password_field import PasswordField
 from ui.motion import play_dialog_enter
-from ui.page_chrome import make_onboarding_guide, make_page_header, make_page_toolbar
+from ui.guided_tour import make_guide_button, start_guided_tour
+from ui.page_chrome import make_page_header, make_page_toolbar
 from ui.splitter_prefs import install_splitter_prefs
 from ui.table_utils import autofit_columns
 from ui.ssh_terminal import SshTerminalWidget
@@ -1958,6 +1959,8 @@ class OpsLogPanel(QWidget):
         # 左侧当前主机卡和「更多操作」均已有服务器管理入口，顶栏不再重复占屏
         self.toolbar_server_btn.hide()
         tool_l.addWidget(self.more_btn)
+        self.guide_btn = make_guide_button(self._start_guided_tour, self.language, toolbar)
+        tool_l.addWidget(self.guide_btn)
         tool_l.addStretch(1)
         tool_l.addWidget(self.toolbar_hint)
         root.addWidget(toolbar)
@@ -2073,23 +2076,6 @@ class OpsLogPanel(QWidget):
         self.server_list = QListWidget()
         self.server_list.hide()
         left_root.addWidget(left)
-
-        self.ops_onboarding_btn = QPushButton('添加服务器' if self.language == 'zh' else 'Add server')
-        apply_button(self.ops_onboarding_btn, 'secondary', compact=True)
-        self.ops_onboarding_btn.clicked.connect(self._open_server_manage_dialog)
-        self.ops_onboarding = make_onboarding_guide(
-            '3 步开始日志排查',
-            [
-                ('添加 SSH 服务器', '点下方按钮或上方「管理」，填写主机地址、账号与服务日志目录'),
-                ('连接交互终端', '点击顶栏紫色「连接本会话」，每个标签都是独立 SSH 会话'),
-                ('检索或 AI 排查', '在下方选服务预览/截取日志，或切到顶部「AI 日志与系统排查」'),
-            ],
-            action_button=self.ops_onboarding_btn,
-            compact=True,
-            parent=left_scroll_host,
-        )
-        self.ops_onboarding.hide()
-        left_root.addWidget(self.ops_onboarding)
 
         # —— 抓取日志（主区域，默认展开）——
         self.session_ops, sess_l = self._card()
@@ -2866,23 +2852,40 @@ class OpsLogPanel(QWidget):
                 self.server_combo.setCurrentIndex(idx)
         self.server_combo.blockSignals(False)
         size_pick_combo(self.server_combo)
-        if hasattr(self, 'ops_onboarding'):
-            zh = self.language == 'zh'
-            self.ops_onboarding.set_content(
-                '3 步开始日志排查' if zh else 'Start log investigation in 3 steps',
-                [
-                    ('添加 SSH 服务器', '点下方按钮或上方「管理」，填写主机地址、账号与服务日志目录'),
-                    ('连接交互终端', '点击顶栏紫色「连接本会话」，每个标签都是独立 SSH 会话'),
-                    ('检索或 AI 排查', '在下方选服务预览/截取日志，或切到顶部「AI 日志与系统排查」'),
-                ] if zh else [
-                    ('Add an SSH server', 'Click below or Manage to configure host, credentials, and log paths.'),
-                    ('Connect terminal session', 'Click the primary Connect button; each tab keeps its own SSH session.'),
-                    ('Search or use AI', 'Preview/capture service logs below or switch to AI Log Investigation.'),
-                ],
-            )
-            if hasattr(self, 'ops_onboarding_btn'):
-                self.ops_onboarding_btn.setText('添加服务器' if zh else 'Add server')
-            self.ops_onboarding.setVisible(len(self._servers) == 0)
+
+    def _start_guided_tour(self):
+        zh = self.language == 'zh'
+        steps = [
+            (
+                self.server_toggle_btn,
+                '配置 SSH 服务器' if zh else 'Configure SSH servers',
+                '点击「管理」添加服务器 IP、账号密码/密钥以及各服务的日志路径，支持分组管理。'
+                if zh else
+                'Click Manage to add SSH hosts, credentials, and service log paths.',
+            ),
+            (
+                self.connect_btn,
+                '连接独立终端会话' if zh else 'Connect terminal session',
+                '选好服务器后点击紫色「连接本会话」，打开交互式终端；支持多标签同时连多台主机。'
+                if zh else
+                'Select a host and click Connect; each terminal tab keeps an independent SSH session.',
+            ),
+            (
+                self.mode_seg,
+                '单机排查 / 多机截取切换' if zh else 'Session vs. Multi-host capture',
+                '「会话」用于单机终端、预览日志与浏览远端目录；切到「多机截取」可并行检索并批量导出多台服务器日志。'
+                if zh else
+                'Use Session for single-host terminal/files, or Multi-host capture for parallel log export.',
+            ),
+            (
+                self.log_workspaces.tabBar(),
+                'AI 日志与系统排查' if zh else 'AI Log & System Investigation',
+                '切到顶部「AI 日志与系统排查」标签，可聚合扫描本地/远端日志并用内网大模型定位根因。'
+                if zh else
+                'Switch to the AI tab to scan logs, monitor Linux hosts, and analyze anomalies with your intranet LLM.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='日志排查' if zh else 'Log Investigation', language=self.language)
 
     # ── 语言 ────────────────────────────────────────────
     def set_language(self, language):
