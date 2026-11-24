@@ -226,23 +226,105 @@ def _create(action: Mapping[str, Any], path=None) -> dict:
     return created
 
 
-def _add_day_note(date_value: Any, text_value: Any) -> dict[str, Any]:
-    """Append one quick work note to the given day's daily report record."""
+def _add_day_note(date_value: Any, text_value: Any, *, reports_path=None, drafts_path=None) -> dict[str, Any]:
+    """Append one quick work note to the given day's daily report record (plain + HTML + draft)."""
     text = str(text_value or '').strip()
     if not text:
         raise HomeActionError('记录内容不能为空')
     if len(text) > 500:
         text = text[:500]
     day = valid_iso_date(str(date_value or '').strip()) or datetime.date.today().isoformat()
-    from tools.daily_reports import load_reports, normalize_report, save_reports
-    reports = load_reports()
-    entry = normalize_report(reports.get(day))
-    existing = str(entry.get('completed') or '').strip()
-    entry['completed'] = f'{existing}\n{text}' if existing else text
+    from tools.daily_reports import (
+        append_report_line,
+        load_drafts,
+        load_reports,
+        save_drafts,
+        save_reports,
+    )
+    reports = load_reports(reports_path)
+    entry = append_report_line(reports.get(day), 'completed', text)
     entry['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
     reports[day] = entry
-    save_reports(reports)
-    return {'ok': True, 'changed': True, 'date': day, 'text': text}
+    save_reports(reports, reports_path)
+
+    # 若当天已有未保存草稿，同步追加到草稿，防止切到日报页时旧草稿遮住刚记的内容
+    drafts = load_drafts(drafts_path)
+    if day in drafts:
+        drafts[day] = append_report_line(drafts.get(day), 'completed', text)
+        save_drafts(drafts, drafts_path)
+
+    return {'ok': True, 'changed': True, 'daily_changed': True, 'date': day, 'text': text}
+
+
+def _delete_day_note(
+    date_value: Any,
+    text_value: Any = '',
+    field_value: Any = '',
+    line_index: Any = None,
+    *,
+    reports_path=None,
+    drafts_path=None,
+) -> dict[str, Any]:
+    """Delete one work-log line from the given day's daily report and sync drafts."""
+    day = valid_iso_date(str(date_value or '').strip())
+    if not day:
+        raise HomeActionError('日期格式不正确')
+    text = str(text_value or '').strip()
+    field = str(field_value or '').strip()
+    from tools.daily_reports import (
+        is_report_dirty,
+        is_report_empty,
+        load_drafts,
+        load_reports,
+        remove_report_line,
+        save_drafts,
+        save_reports,
+    )
+    reports = load_reports(reports_path)
+    if day not in reports:
+        raise HomeActionError('当天暂无可删除的记录')
+    updated, removed = remove_report_line(
+        reports.get(day),
+        text=text,
+        field=field,
+        line_index=line_index,
+    )
+    if not removed:
+        raise HomeActionError('未找到对应的记录，可能已被修改')
+
+    day_removed = False
+    if is_report_empty(updated):
+        reports.pop(day, None)
+        day_removed = True
+    else:
+        updated['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+        reports[day] = updated
+    save_reports(reports, reports_path)
+
+    # 同步清理当天草稿里的对应行
+    drafts = load_drafts(drafts_path)
+    if day in drafts:
+        updated_draft, draft_removed = remove_report_line(
+            drafts.get(day),
+            text=text,
+            field=field,
+            line_index=line_index,
+        )
+        if draft_removed:
+            if is_report_empty(updated_draft) or not is_report_dirty(reports.get(day) or {}, updated_draft):
+                drafts.pop(day, None)
+            else:
+                drafts[day] = updated_draft
+            save_drafts(drafts, drafts_path)
+
+    return {
+        'ok': True,
+        'changed': True,
+        'daily_changed': True,
+        'date': day,
+        'deleted': True,
+        'day_removed': day_removed,
+    }
 
 
 def handle(action: Any, path=None) -> dict[str, Any]:
@@ -253,6 +335,13 @@ def handle(action: Any, path=None) -> dict[str, Any]:
         kind = str(action.get('action') or '')
         if kind == 'add_day_note':
             return _add_day_note(action.get('date'), action.get('text'))
+        if kind == 'delete_day_note':
+            return _delete_day_note(
+                action.get('date'),
+                action.get('text') or '',
+                action.get('field') or '',
+                action.get('index'),
+            )
         if kind == 'detail':
             item = _find(str(action.get('id') or ''), path)
             if item is None:

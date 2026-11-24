@@ -204,26 +204,32 @@ def monthly_work_logs(reports, month: str) -> list[dict]:
         notes = str(raw.get('notes') or '').strip()
         issues = str(raw.get('issues') or '').strip()
         tomorrow = str(raw.get('tomorrow') or '').strip()
-        lines: list[str] = []
-        for block in (completed, notes):
+        items: list[dict] = []
+        for field_name, block in (('completed', completed), ('notes', notes)):
             if not block:
                 continue
+            field_idx = 0
             for line in block.splitlines():
                 cleaned = line.strip().lstrip('-•*· ').strip()
-                if cleaned and cleaned not in lines:
-                    lines.append(cleaned)
-        if not lines and issues:
+                if cleaned:
+                    items.append({'text': cleaned, 'field': field_name, 'index': field_idx})
+                    field_idx += 1
+        if not items and issues:
+            field_idx = 0
             for line in issues.splitlines():
                 cleaned = line.strip().lstrip('-•*· ').strip()
                 if cleaned:
-                    lines.append(cleaned)
+                    items.append({'text': cleaned, 'field': 'issues', 'index': field_idx})
+                    field_idx += 1
+        lines = [item['text'] for item in items]
         if not lines and not tomorrow:
             continue
         entries.append({
             'date': day_str[:10],
-            'count': len(lines) if lines else 1,
+            'count': len(items) if items else 1,
             'summary': lines[0] if lines else tomorrow.splitlines()[0].strip(),
-            'lines': lines[:12],
+            'lines': lines[:50],
+            'items': items[:50],
             'issues': issues[:300],
             'tomorrow': tomorrow[:300],
         })

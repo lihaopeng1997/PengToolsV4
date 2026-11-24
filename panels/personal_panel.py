@@ -1500,6 +1500,7 @@ class KnowledgeTab(QWidget):
 
 class DailyReportTab(QWidget):
     reminder_due = pyqtSignal(str, str)
+    reports_changed = pyqtSignal()
     _REPORT_FIELDS = REPORT_FIELDS
     _ROLE_KIND = int(Qt.ItemDataRole.UserRole) + 1
 
@@ -2142,6 +2143,7 @@ class DailyReportTab(QWidget):
         self._refresh_dates()
         self.delete_btn.setEnabled(True)
         self._update_unsaved_hint()
+        self.reports_changed.emit()
         show_success(self, '日报', '日报已保存到本机。')
 
     def _copy_report(self):
@@ -2251,6 +2253,73 @@ class DailyReportTab(QWidget):
         self._loaded_key = ''
         self._refresh_dates()
         self._load_date(self.date_edit.date())
+        self.reports_changed.emit()
+
+    def select_date(self, date_str: str):
+        """定位并打开指定日期（YYYY-MM-DD）的日报。"""
+        key = str(date_str or '').strip()[:10]
+        parsed = QDate.fromString(key, 'yyyy-MM-dd')
+        if not parsed.isValid():
+            return
+        self._load_date(parsed)
+        tree = getattr(self, 'date_tree', None)
+        if tree is None:
+            return
+        for i in range(tree.topLevelItemCount()):
+            group = tree.topLevelItem(i)
+            for j in range(group.childCount()):
+                child = group.child(j)
+                if (
+                    child.data(0, self._ROLE_KIND) == 'date'
+                    and child.data(0, Qt.ItemDataRole.UserRole) == key
+                ):
+                    group.setExpanded(True)
+                    tree.blockSignals(True)
+                    tree.setCurrentItem(child)
+                    tree.blockSignals(False)
+                    tree.scrollToItem(child)
+                    return
+
+    def reload_from_store(self, *, focus_date: str = '', force_reload_date: str = ''):
+        """从磁盘同步最新日报与草稿（首页速记/删除后调用），安全保留其他日期未保存编辑。"""
+        current_key = self._loaded_key or self._date_key()
+        force_key = str(force_reload_date or '').strip()[:10]
+        focus_key = str(focus_date or '').strip()[:10]
+
+        keep_current_editor = bool(
+            current_key
+            and current_key != force_key
+            and self._is_dirty(current_key)
+        )
+        current_snapshot = self._fields_snapshot(self._current_values()) if keep_current_editor else None
+
+        self._reports = load_reports()
+        disk_drafts = load_drafts()
+        if keep_current_editor and current_snapshot is not None:
+            disk_drafts[current_key] = current_snapshot
+        self._drafts = disk_drafts
+
+        if focus_key:
+            self.select_date(focus_key)
+            return
+
+        if current_key and not keep_current_editor:
+            self._loading = True
+            try:
+                self._sync_editors_date(current_key)
+                report = self._drafts.get(current_key) or self._reports.get(current_key) or {}
+                self._apply_report_to_editors(report)
+                self._loaded_key = current_key
+                self.delete_btn.setEnabled(current_key in self._reports)
+                self._refresh_dates()
+                self._update_unsaved_hint()
+            finally:
+                self._loading = False
+        else:
+            self._refresh_dates()
+            if current_key:
+                self.delete_btn.setEnabled(current_key in self._reports)
+            self._update_unsaved_hint()
 
     def _refresh_reminder_status(self):
         self._reminder = load_reminder_settings()
@@ -2343,6 +2412,7 @@ class DailyReportTab(QWidget):
 
 class PersonalPanel(QWidget):
     reminder_due = pyqtSignal(str, str)
+    reports_changed = pyqtSignal()
 
     def __init__(self, language='zh'):
         super().__init__()
@@ -2365,6 +2435,7 @@ class PersonalPanel(QWidget):
         self.knowledge_tab = KnowledgeTab(language)
         self.daily_tab = DailyReportTab(language)
         self.daily_tab.reminder_due.connect(self.reminder_due.emit)
+        self.daily_tab.reports_changed.connect(self.reports_changed.emit)
         self.stack.addWidget(self.knowledge_tab)
         self.stack.addWidget(self.daily_tab)
         root.addWidget(self.stack, 1)
@@ -2418,12 +2489,14 @@ class PersonalPanel(QWidget):
             )
         self._sync_page_header()
 
-    def open_daily_report(self):
+    def open_daily_report(self, date_str: str = ''):
         self.stack.setCurrentWidget(self.daily_tab)
         self._sync_page_header()
-        # 从设置页改完提醒后切回：必须主动刷新，不能只靠 showEvent
+        # 从设置页改完提醒或首页速记后切回：主动刷新提醒与日报列表
         if hasattr(self.daily_tab, 'reload_reminder_settings'):
             self.daily_tab.reload_reminder_settings()
+        if hasattr(self.daily_tab, 'reload_from_store'):
+            self.daily_tab.reload_from_store(focus_date=date_str)
 
     def open_learning(self):
         self.stack.setCurrentWidget(self.knowledge_tab)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import type { BridgeApi, HomeActionResult } from '../shared/bridge'
-import type { DashboardSummary, StageKey } from './types'
+import type { DashboardSummary, MonthlyWorkLogItem, StageKey } from './types'
 import IconSprite from './IconSprite.vue'
 import PrismIcon from '../shared/components/PrismIcon.vue'
 import HomeHero from './components/HomeHero.vue'
@@ -119,6 +119,7 @@ const drawer = ref<{ open: boolean; mode: 'detail' | 'create'; id: string | null
   group: null,
 })
 const busyId = ref<string | null>(null)
+const busyNoteKey = ref<string | null>(null)
 const toast = ref('')
 let toastTimer = 0
 const boardRef = ref<{ $el?: HTMLElement } | null>(null)
@@ -247,7 +248,12 @@ function onOpenRequirementSection(reqId?: string | null, section?: string | null
   }
 }
 
-function onWriteDaily(): void {
+function onWriteDaily(date?: string): void {
+  const target = String(date || '').trim()
+  if (target && canAct.value) {
+    void act({ action: 'open_daily', date: target })
+    return
+  }
   onNavClick(9)
 }
 
@@ -275,7 +281,25 @@ async function onAddDayNote(date: string, text: string): Promise<void> {
   if (!result.ok) {
     showToast(result.error || '记录失败')
   } else {
-    showToast(`已记录到 ${date} 工作足迹`)
+    showToast(`已记录到 ${date}，并同步到日报`)
+  }
+}
+
+async function onDeleteDayNote(date: string, item: MonthlyWorkLogItem): Promise<void> {
+  const key = `${date}|${item.field}|${item.index}|${item.text}`
+  busyNoteKey.value = key
+  const result = await act({
+    action: 'delete_day_note',
+    date,
+    text: item.text,
+    field: item.field,
+    index: item.index,
+  })
+  busyNoteKey.value = null
+  if (!result.ok) {
+    showToast(result.error || '删除失败')
+  } else {
+    showToast('已删除该条记录，并同步更新日报')
   }
 }
 
@@ -323,10 +347,12 @@ function onRetry(): void {
         :tasks="summary.monthly_release_tasks"
         :logs="summary.monthly_logs"
         :busy-id="busyId"
+        :busy-note-key="busyNoteKey"
         @open-requirement="onOpenRequirement"
         @open-requirement-section="onOpenRequirementSection"
         @set-release-date="onCalendarSetDate"
         @add-day-note="onAddDayNote"
+        @delete-day-note="onDeleteDayNote"
         @open-daily="onWriteDaily"
         @create-requirement="onCreateRequirement"
         @open-manager="() => onNavClick(10)"

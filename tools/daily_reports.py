@@ -124,6 +124,22 @@ def plain_from_html(html_text: str) -> str:
     return text.strip()
 
 
+def plain_to_html(plain: str) -> str:
+    """将纯文本按行转为简洁 HTML 段落，保持与 QTextEdit 往返一致。"""
+    text = str(plain or '').strip()
+    if not text:
+        return ''
+    return ''.join(f'<p>{html.escape(line)}</p>' for line in text.splitlines())
+
+
+def _non_empty_lines(text: str) -> list[str]:
+    return [line.strip() for line in str(text or '').splitlines() if line.strip()]
+
+
+def _clean_note_line(line: str) -> str:
+    return str(line or '').strip().lstrip('-•*· ').strip()
+
+
 def normalize_report(report) -> dict:
     """统一日报条目：plain + html + assets。"""
     src = dict(report) if isinstance(report, dict) else {}
@@ -139,15 +155,152 @@ def normalize_report(report) -> dict:
         html_key = f'{key}_html'
         html_val = str(src.get(html_key) or '').strip()
         if not html_val and plain:
-            # 旧数据：纯文本 → 简单 HTML
-            escaped = html.escape(plain).replace('\n', '<br/>')
-            html_val = f'<p>{escaped}</p>' if escaped else ''
-        if not plain and html_val:
+            html_val = plain_to_html(plain)
+        elif not plain and html_val:
             plain = plain_from_html(html_val)
+        elif plain and html_val and '<img' not in html_val.lower():
+            # 自愈历史上仅改纯文本未同步 HTML 的记录，避免日报富文本区漏显示
+            if _non_empty_lines(plain) != _non_empty_lines(plain_from_html(html_val)):
+                html_val = plain_to_html(plain)
         out[key] = plain
         out[html_key] = html_val
     out['updated_at'] = str(src.get('updated_at') or '')
     return out
+
+
+def append_report_line(report: dict | None, field: str, text: str) -> dict:
+    """向指定字段追加一行记录，并同步维护 *_html（保留已有插图）。"""
+    if field not in REPORT_FIELDS:
+        raise ValueError(f'unsupported report field: {field}')
+    line = str(text or '').strip()
+    entry = normalize_report(report or {})
+    if not line:
+        return entry
+    existing = str(entry.get(field) or '').strip()
+    new_plain = f'{existing}\n{line}' if existing else line
+    entry[field] = new_plain
+
+    html_key = f'{field}_html'
+    existing_html = str(entry.get(html_key) or '').strip()
+    if existing_html and '<img' in existing_html.lower():
+        para = f'<p>{html.escape(line)}</p>'
+        if re.search(r'</\s*body\s*>', existing_html, flags=re.I):
+            entry[html_key] = re.sub(r'(</\s*body\s*>)', para + r'\1', existing_html, count=1, flags=re.I)
+        else:
+            entry[html_key] = existing_html + para
+    else:
+        entry[html_key] = plain_to_html(new_plain)
+    return entry
+
+
+def _remove_line_from_rich_html(html_val: str, target_clean: str, target_raw: str) -> str:
+    """从包含图片的 HTML 中移除匹配的一段纯文本，保留所有 <img> 标签。"""
+    block_re = re.compile(r'(<(?:p|div)\b[^>]*>)(.*?)(</(?:p|div)>)', flags=re.I | re.S)
+    removed = False
+
+    def _repl(match):
+        nonlocal removed
+        if removed:
+            return match.group(0)
+        full = match.group(0)
+        if '<img' in full.lower():
+            return full
+        inner_clean = _clean_note_line(plain_from_html(match.group(2)))
+        inner_raw = plain_from_html(match.group(2)).strip()
+        if (target_clean and inner_clean == target_clean) or (target_raw and inner_raw == target_raw):
+            removed = True
+            return ''
+        return full
+
+    updated = block_re.sub(_repl, html_val)
+    if removed:
+        return updated
+    # 兜底：若该行和图片在同一个段落里，仅删掉对应转义文本
+    escaped = html.escape(target_raw or target_clean)
+    if escaped and escaped in html_val:
+        return html_val.replace(escaped, '', 1)
+    return html_val
+
+
+def remove_report_line(
+    report: dict | None,
+    *,
+    text: str = '',
+    field: str = '',
+    line_index: int | None = None,
+) -> tuple[dict, bool]:
+    """从日报记录中删除指定一行，并同步更新 *_html。返回 (updated_entry, removed)。"""
+    entry = normalize_report(report or {})
+    target_raw = str(text or '').strip()
+    target_clean = _clean_note_line(target_raw)
+
+    if field in ('completed', 'notes', 'issues'):
+        candidates = [field] + [f for f in ('completed', 'notes', 'issues') if f != field]
+    else:
+        candidates = ['completed', 'notes', 'issues']
+
+    idx_val: int | None = None
+    if line_index is not None:
+        try:
+            idx_val = int(line_index)
+        except (TypeError, ValueError):
+            idx_val = None
+
+    for candidate in candidates:
+        block = str(entry.get(candidate) or '')
+        if not block.strip():
+            continue
+        raw_lines = block.splitlines()
+        indexed = [(i, _clean_note_line(ln), ln.strip()) for i, ln in enumerate(raw_lines) if _clean_note_line(ln)]
+        drop_raw_idx = None
+        removed_clean = ''
+        removed_raw = ''
+
+        # 优先按字段+下标精确匹配（带文案校验防并发误删）
+        if candidate == field and idx_val is not None and 0 <= idx_val < len(indexed):
+            raw_i, cleaned, raw_s = indexed[idx_val]
+            if not target_clean or cleaned == target_clean or raw_s == target_raw:
+                drop_raw_idx = raw_i
+                removed_clean = cleaned
+                removed_raw = raw_s
+
+        # 退化为按文案匹配
+        if drop_raw_idx is None and (target_clean or target_raw):
+            for raw_i, cleaned, raw_s in indexed:
+                if (target_clean and cleaned == target_clean) or (target_raw and raw_s == target_raw):
+                    drop_raw_idx = raw_i
+                    removed_clean = cleaned
+                    removed_raw = raw_s
+                    break
+
+        if drop_raw_idx is None:
+            continue
+
+        kept = [ln for i, ln in enumerate(raw_lines) if i != drop_raw_idx]
+        new_plain = '\n'.join(kept).strip()
+        entry[candidate] = new_plain
+        html_key = f'{candidate}_html'
+        existing_html = str(entry.get(html_key) or '').strip()
+        if existing_html and '<img' in existing_html.lower():
+            entry[html_key] = _remove_line_from_rich_html(existing_html, removed_clean, removed_raw)
+        else:
+            entry[html_key] = plain_to_html(new_plain)
+        return entry, True
+
+    return entry, False
+
+
+def is_report_empty(report: dict | None) -> bool:
+    """判断一条日报是否已无任何正文、计划、备注和插图。"""
+    entry = normalize_report(report or {})
+    if entry.get('assets'):
+        return False
+    for key in REPORT_FIELDS:
+        if str(entry.get(key) or '').strip():
+            return False
+        if '<img' in str(entry.get(f'{key}_html') or '').lower():
+            return False
+    return True
 
 
 def fields_snapshot(report: dict | None) -> dict:

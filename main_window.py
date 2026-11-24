@@ -814,6 +814,7 @@ class MainWindow(QMainWindow):
         from panels.personal_panel import PersonalPanel
         panel = PersonalPanel(self.language)
         panel.reminder_due.connect(self._show_private_notification)
+        panel.reports_changed.connect(self._push_dashboard_summary)
         self._mount_panel(8, panel)
         self.personal_panel = panel
         self._apply_panel_chrome(panel)
@@ -2288,11 +2289,23 @@ class MainWindow(QMainWindow):
             from PyQt6.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
             return {'ok': True}
+        if payload.get('action') == 'open_daily':
+            date_str = str(payload.get('date') or '').strip()
+            QTimer.singleShot(0, lambda d=date_str: self._open_daily_report(d))
+            return {'ok': True}
         result = home_actions.handle(payload)
         if result.get('changed'):
-            # 写入后异步刷新：首页 summary 与已打开的需求管理同步，不阻塞本次返回
-            QTimer.singleShot(0, self._after_home_action_change)
+            # 写入后异步刷新：首页 summary 与已打开的需求管理/日报页同步，不阻塞本次返回
+            changed_date = str(result.get('date') or '') if result.get('daily_changed') else ''
+            QTimer.singleShot(0, lambda d=changed_date: self._after_home_action_change(daily_date=d))
         return result
+
+    def _open_daily_report(self, date_str: str = ''):
+        """首页点击某天「打开当天日报」：切到日报并直接定位到该日期。"""
+        if not self._show_panel(9):
+            return
+        if self.personal_panel is not None:
+            self.personal_panel.open_daily_report(date_str)
 
     def _apply_home_username(self, name: str) -> None:
         """称呼变化后同步首页问候、Web 顶栏与头像字。"""
@@ -2303,7 +2316,7 @@ class MainWindow(QMainWindow):
             self.user_chip.setText(_user_initials(name))
         QTimer.singleShot(0, self._push_dashboard_summary)
 
-    def _after_home_action_change(self):
+    def _after_home_action_change(self, daily_date: str = ''):
         self._push_dashboard_summary()
         panel = getattr(self, 'requirement_panel', None)
         if panel is not None and hasattr(panel, 'reload_requirements'):
@@ -2313,15 +2326,11 @@ class MainWindow(QMainWindow):
                 pass
         personal = getattr(self, 'personal_panel', None)
         daily_tab = getattr(personal, 'daily_tab', None) if personal is not None else None
-        if daily_tab is not None:
-            for method_name in ('_reload_from_store', 'reload_reports', '_refresh_history'):
-                fn = getattr(daily_tab, method_name, None)
-                if callable(fn):
-                    try:
-                        fn()
-                    except Exception:
-                        pass
-                    break
+        if daily_tab is not None and hasattr(daily_tab, 'reload_from_store'):
+            try:
+                daily_tab.reload_from_store(force_reload_date=daily_date)
+            except Exception:
+                pass
 
     def _on_web_create_requirement(self):
         """Web 首页点击 '+ 新建需求'：切换到需求管理并直接弹出新增对话框。"""

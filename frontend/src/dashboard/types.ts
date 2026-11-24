@@ -157,11 +157,18 @@ export const STAGE_DEFS = [
 
 export type StageKey = typeof STAGE_DEFS[number]['key']
 
+export interface MonthlyWorkLogItem {
+  text: string
+  field: 'completed' | 'notes' | 'issues' | string
+  index: number
+}
+
 export interface MonthlyWorkLog {
   date: string
   count: number
   summary: string
   lines: string[]
+  items?: MonthlyWorkLogItem[] | null
   issues?: string | null
   tomorrow?: string | null
 }

@@ -6,13 +6,14 @@
  * - 顶部分类胶囊：全部 | 做了啥 | 上线，双色鲜明指示点一眼分辨。
  */
 import { computed, ref } from 'vue'
-import type { DashboardBoardItem, MonthlyReleaseTask, MonthlyWorkLog } from '../types'
+import type { DashboardBoardItem, MonthlyReleaseTask, MonthlyWorkLog, MonthlyWorkLogItem } from '../types'
 
 const props = defineProps<{
   board?: DashboardBoardItem[] | null
   tasks?: MonthlyReleaseTask[] | null
   logs?: MonthlyWorkLog[] | null
   busyId?: string | null
+  busyNoteKey?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -20,7 +21,8 @@ const emit = defineEmits<{
   (e: 'openRequirementSection', id: string, section: 'completion' | 'test_points'): void
   (e: 'setReleaseDate', id: string, date: string): void
   (e: 'addDayNote', date: string, text: string): void
-  (e: 'openDaily'): void
+  (e: 'deleteDayNote', date: string, item: MonthlyWorkLogItem): void
+  (e: 'openDaily', date?: string): void
   (e: 'createRequirement'): void
   (e: 'openManager'): void
 }>()
@@ -121,6 +123,12 @@ const hoverSummary = computed(() => {
 
 const selectedTasks = computed(() => (selectedDay.value ? tasksByDay.value.get(selectedDay.value) ?? [] : []))
 const selectedLog = computed(() => (selectedDay.value ? logsByDay.value.get(selectedDay.value) ?? null : null))
+const selectedWorkItems = computed<MonthlyWorkLogItem[]>(() => {
+  const log = selectedLog.value
+  if (!log) return []
+  if (Array.isArray(log.items) && log.items.length) return log.items
+  return (log.lines ?? []).map((text, index) => ({ text, field: 'completed', index }))
+})
 const selectedDate = computed(() =>
   selectedDay.value ? `${monthKey}-${String(selectedDay.value).padStart(2, '0')}` : '',
 )
@@ -160,6 +168,22 @@ function submitDayNote(): void {
   if (!text || !date) return
   emit('addDayNote', date, text)
   noteDraft.value = ''
+}
+
+function noteBusyKey(date: string, item: MonthlyWorkLogItem): string {
+  return `${date}|${item.field}|${item.index}|${item.text}`
+}
+
+function isNoteBusy(item: MonthlyWorkLogItem): boolean {
+  const date = selectedDate.value
+  if (!date || !props.busyNoteKey) return false
+  return props.busyNoteKey === noteBusyKey(date, item)
+}
+
+function removeDayNote(item: MonthlyWorkLogItem): void {
+  const date = selectedDate.value
+  if (!date || isNoteBusy(item)) return
+  emit('deleteDayNote', date, item)
 }
 
 function isBusy(id: string): boolean {
@@ -256,22 +280,43 @@ function schedule(): void {
           <button type="button" class="link" @click="selectedDay = null">收起</button>
         </div>
 
-        <!-- 区块一：当天做了什么（所有用户通用） -->
+        <!-- 区块一：当天做了什么（所有用户通用，与日报双向同步） -->
         <div v-if="filterMode !== 'release'" class="sub-block">
           <div class="sub-head">
-            <span class="sub-title"><i class="lg-dot work" />当天做了什么</span>
-            <button type="button" class="link-xs" @click="emit('openDaily')">完整日报 →</button>
+            <span class="sub-title">
+              <i class="lg-dot work" />当天做了什么
+              <em class="sync-tag">与日报同步</em>
+            </span>
+            <button type="button" class="link-xs" @click="emit('openDaily', selectedDate)">打开当天日报 →</button>
           </div>
-          <ul v-if="selectedLog && selectedLog.lines.length" class="work-list">
-            <li v-for="(line, i) in selectedLog.lines.slice(0, 5)" :key="i">{{ line }}</li>
+          <ul v-if="selectedWorkItems.length" class="work-list">
+            <li
+              v-for="(item, i) in selectedWorkItems"
+              :key="`${item.field}-${item.index}-${i}`"
+              class="work-item"
+            >
+              <span class="work-bullet" aria-hidden="true" />
+              <span class="work-text" :title="item.text">{{ item.text }}</span>
+              <button
+                type="button"
+                class="btn-del-note"
+                :disabled="isNoteBusy(item)"
+                title="删除这条记录（同步更新日报）"
+                aria-label="删除这条记录"
+                @click="removeDayNote(item)"
+              >
+                ×
+              </button>
+            </li>
           </ul>
+          <p v-else-if="selectedLog?.tomorrow" class="empty">当天仅填写了明日计划，可点右侧打开完整日报查看</p>
           <p v-else class="empty">还没有记录这天做了什么</p>
           <form class="quick-note-form" @submit.prevent="submitDayNote">
             <input
               v-model="noteDraft"
               type="text"
               maxlength="300"
-              :placeholder="`记一笔 ${month + 1}/${selectedDay} 做了什么…（回车保存）`"
+              :placeholder="`记一笔 ${month + 1}/${selectedDay} 做了什么…（回车保存并同步日报）`"
             />
             <button type="submit" class="btn-save-note" :disabled="!noteDraft.trim()">记一笔</button>
           </form>
@@ -618,24 +663,104 @@ function schedule(): void {
   color: var(--text-strong);
 }
 
+.sync-tag {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #E6F8F1;
+  color: #047857;
+  margin-left: 2px;
+}
+
 .link-xs {
   border: none;
   background: none;
   color: var(--primary);
   font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
 }
 
+.link-xs:hover {
+  text-decoration: underline;
+}
+
 .work-list {
+  list-style: none;
   margin: 0;
-  padding-left: 16px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
   font-size: 12px;
   color: var(--text);
-  max-height: 92px;
+  max-height: 136px;
   overflow-y: auto;
+}
+
+.work-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 7px;
+  transition: background 140ms ease;
+}
+
+.work-item:hover {
+  background: rgba(108, 88, 217, 0.06);
+}
+
+.work-bullet {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #10B981;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.work-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.btn-del-note {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.work-item:hover .btn-del-note {
+  opacity: 0.95;
+}
+
+.btn-del-note:hover:not(:disabled) {
+  background: #FEE2E2;
+  color: #DC2626;
+  opacity: 1;
+}
+
+.btn-del-note:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .quick-note-form {
