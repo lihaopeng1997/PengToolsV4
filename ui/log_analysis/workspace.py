@@ -17,6 +17,7 @@ from tools.log_analysis.report import Store, report, stamp
 from tools.app_logging import mask_private_ipv4
 from ui.chat_kit import Composer
 from ui.confirm_dialog import confirm_action
+from ui.guided_tour import make_guide_button, start_guided_tour
 from ui.text_actions import install_text_actions
 from ui.thinking_indicator import ThinkingIndicator
 from ui.splitter_prefs import install_splitter_prefs
@@ -81,6 +82,8 @@ class LogAnalysisWorkspace(QWidget):
         self._target_toggle = target_toggle
         controls = QHBoxLayout()
         controls.addWidget(target_toggle)
+        self.guide_btn = make_guide_button(self._start_guided_tour, 'zh', self)
+        controls.addWidget(self.guide_btn)
         controls.addStretch()
         root.addLayout(controls)
         self.split = QSplitter(Qt.Orientation.Horizontal)
@@ -237,8 +240,7 @@ class LogAnalysisWorkspace(QWidget):
         # without squeezing the event table out of view.
         self.capture_split = QSplitter(Qt.Orientation.Horizontal)
         self.capture_split.addWidget(self.target_scroll)
-        target_toggle.toggled.connect(self.target_scroll.setVisible)
-        target_toggle.toggled.connect(lambda checked: target_toggle.setText('收起设置' if checked else '展开设置'))
+        target_toggle.toggled.connect(self._on_target_toggled)
         self.target_scroll.setVisible(False)
         center = QWidget()
         middle = QVBoxLayout(center)
@@ -256,12 +258,14 @@ class LogAnalysisWorkspace(QWidget):
         self.events.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.events.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.events.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        autofit_columns(self.events).configure({2: 170}, minimum=True)
+        autofit_columns(self.events).configure({0: 112, 1: 54, 2: 168, 3: 72}, minimum=True)
         self.events.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.events.customContextMenuRequested.connect(self.event_menu)
         self.events.itemSelectionChanged.connect(self.show_evidence)
         self.result_tabs = QTabWidget()
         self.result_tabs.setObjectName('log-result-tabs')
+        self.result_tabs.tabBar().setUsesScrollButtons(True)
+        self.result_tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
         self.result_tabs.addTab(self.events, '异常事件')
         self.metric_view = QPlainTextEdit(); self.metric_view.setReadOnly(True)
         self.result_tabs.addTab(self.metric_view, '系统 / 服务 / 端口')
@@ -320,30 +324,33 @@ class LogAnalysisWorkspace(QWidget):
         self.composer.stop_requested.connect(self.cancel_analysis)
         box.addWidget(self.composer)
         self.split.addWidget(right)
-        # Capture keeps the slack; AI may narrow to its minimum instead of
-        # stealing width from the event table.
-        self.split.setStretchFactor(0, 0)
-        self.split.setStretchFactor(1, 1)
+        # 默认左右均衡（左侧 43% 且至少 430px，确保「异常事件 / 已采集日志 / 实际覆盖范围」标签与表格完整展示）
+        self.split.setStretchFactor(0, 4)
+        self.split.setStretchFactor(1, 5)
         install_splitter_prefs(
             self.split,
-            defaults=[320, 820],
+            defaults=[460, 660],
+            defaults_for_extent=lambda extent: [
+                max(430, min(560, int(extent * 0.43))),
+                max(420, extent - max(430, min(560, int(extent * 0.43)))),
+            ],
             page_id='log-analysis',
-            # v2: new defaults must not be overwritten by the old capture-first ratio.
-            tab_id='capture-ai-v2',
-            min_sizes=[280, 420],
+            # v3: 解决首次打开左栏 320px 过窄导致「异常事件 / 已采集日志 / 实际覆盖范围」标签被截断的问题
+            tab_id='capture-ai-v3',
+            min_sizes=[390, 400],
             accessible_name='日志排查 采集/AI 分隔',
         )
         install_splitter_prefs(
             self.capture_split,
-            defaults=[180, 420],
+            defaults=[220, 420],
             page_id='log-analysis',
-            tab_id='target-events-v2',
-            min_sizes=[160, 300],
+            tab_id='target-events-v3',
+            min_sizes=[190, 340],
             accessible_name='日志排查 目标/事件 分隔',
         )
-        self.target_scroll.setMinimumWidth(160)
-        self.capture_split.setMinimumWidth(280)
-        right.setMinimumWidth(420)
+        self.target_scroll.setMinimumWidth(190)
+        self.capture_split.setMinimumWidth(390)
+        right.setMinimumWidth(400)
         self.status = QLabel('未启动 · 未连接服务器')
         self.status.setWordWrap(True)
         root.addWidget(self.status)
@@ -356,6 +363,53 @@ class LogAnalysisWorkspace(QWidget):
         self.use_time.toggled.connect(self.mode_changed)
         self.reload()
         self.mode_changed()
+
+    def _on_target_toggled(self, checked: bool) -> None:
+        self.target_scroll.setVisible(bool(checked))
+        self._target_toggle.setText('收起设置' if checked else '展开设置')
+        sizes = self.split.sizes()
+        total = sum(sizes)
+        if checked and total >= 980 and sizes and sizes[0] < 580:
+            left_w = min(int(total * 0.56), max(580, sizes[0] + 190))
+            self.split.setSizes([left_w, max(400, total - left_w)])
+            self.capture_split.setSizes([230, max(350, left_w - 230)])
+        elif not checked and total >= 860 and sizes and sizes[0] > 560:
+            left_w = max(430, min(500, int(total * 0.43)))
+            self.split.setSizes([left_w, max(400, total - left_w)])
+
+    def _start_guided_tour(self) -> None:
+        zh = getattr(self, 'language', 'zh') == 'zh'
+        steps = [
+            (
+                self.mode,
+                '选择排查方式' if zh else 'Choose investigation mode',
+                '「历史日志分析」扫描已有文件；「Linux 实时监控」观察资源与端口；「仅实时日志」跟踪新增日志行。'
+                if zh else
+                'Pick History for existing files, Linux Monitor for host metrics/ports, or Live Logs for streaming.',
+            ),
+            (
+                self._target_toggle,
+                '展开设置选择目标' if zh else 'Expand settings to pick targets',
+                '点这里展开设置面板，选择本地文件或 SSH 服务器与服务日志路径，再点右侧「读取文件 / 开始监控」。'
+                if zh else
+                'Open settings to pick local files or SSH server log paths, then start reading/monitoring.',
+            ),
+            (
+                self.result_tabs,
+                '查看异常事件与日志证据' if zh else 'Inspect anomalies & evidence',
+                '采集到的候选异常会自动聚合在此表，点选条目即可查看堆栈上下文，再点下方「分析所选」。'
+                if zh else
+                'Detected anomalies aggregate here; select any row to inspect context or trigger AI analysis.',
+            ),
+            (
+                self.models,
+                '勾选内网模型启动 AI 分析' if zh else 'Select intranet model for AI',
+                '选择已配置的内网模型并勾选确认后，即可在下方直接提问或让 AI 自动整理故障报告。'
+                if zh else
+                'Pick your configured intranet model, check consent, and chat or generate incident reports below.',
+            ),
+        ]
+        start_guided_tour(self, steps, module_title='AI 日志与系统排查' if zh else 'AI Log Investigation', language=getattr(self, 'language', 'zh'))
 
     def mode_changed(self, *_):
         mode = self.selected_mode()
