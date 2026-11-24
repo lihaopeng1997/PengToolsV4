@@ -835,19 +835,43 @@ class RequirementDialog(QDialog):
         bind_folder_btn = QPushButton('绑定目录'); size_compact_button(bind_folder_btn); bind_folder_btn.clicked.connect(self._bind_local_folder)
         clear_folder_btn = QPushButton('清除'); size_compact_button(clear_folder_btn); clear_folder_btn.clicked.connect(self._clear_local_folder)
         local_path_row = QHBoxLayout(); local_path_row.addWidget(self.local_path_edit, 1); local_path_row.addWidget(bind_folder_btn); local_path_row.addWidget(clear_folder_btn)
-        self.system_bindings_host = QScrollArea()
+        self.system_bindings_host = QFrame()
         self.system_bindings_host.setObjectName('requirement-binding-host')
-        self.system_bindings_host.setFixedHeight(126)
-        self.system_bindings_host.setWidgetResizable(True)
-        self.system_bindings_host.setFrameShape(QFrame.Shape.NoFrame)
-        self.system_bindings_host.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.system_bindings_host.setStyleSheet(
+            'QFrame#requirement-binding-host {'
+            ' background: #F7F5FD;'
+            ' border: 1px solid #DFD9F0;'
+            ' border-radius: 10px;'
+            '}'
+        )
+        host_wrap = QVBoxLayout(self.system_bindings_host)
+        host_wrap.setContentsMargins(10, 6, 10, 8)
+        host_wrap.setSpacing(6)
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(0, 0, 0, 0)
+        toggle_row.setSpacing(8)
+        self.binding_toggle_btn = QPushButton('▸ 开发目录 / 分支绑定（选填）')
+        self.binding_toggle_btn.setCheckable(True)
+        self.binding_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.binding_toggle_btn.setStyleSheet(
+            'QPushButton { border: none; background: transparent; color: #3D3952; font-weight: 600;'
+            ' text-align: left; padding: 2px 4px; }'
+            'QPushButton:hover { color: #6C58D9; }'
+        )
+        self.binding_toggle_btn.toggled.connect(self._on_binding_section_toggled)
+        toggle_row.addWidget(self.binding_toggle_btn, 1)
+        self.binding_summary_hint = QLabel('')
+        self.binding_summary_hint.setObjectName('field-hint')
+        toggle_row.addWidget(self.binding_summary_hint)
+        host_wrap.addLayout(toggle_row)
+
         self.system_bindings_body = QWidget()
-        self.system_bindings_host.setWidget(self.system_bindings_body)
-        self.system_bindings_layout = QGridLayout(self.system_bindings_body)
-        self.system_bindings_layout.setContentsMargins(0, 0, 0, 0)
-        self.system_bindings_layout.setHorizontalSpacing(8)
-        self.system_bindings_layout.setVerticalSpacing(6)
+        self.system_bindings_layout = QVBoxLayout(self.system_bindings_body)
+        self.system_bindings_layout.setContentsMargins(0, 2, 0, 0)
+        self.system_bindings_layout.setSpacing(6)
+        host_wrap.addWidget(self.system_bindings_body)
         self._binding_rows = {}
+        self._binding_user_toggled = False
         self._standalone_binding_host = QWidget()
         standalone_layout = QVBoxLayout(self._standalone_binding_host)
         standalone_layout.setContentsMargins(0, 0, 0, 0)
@@ -862,7 +886,7 @@ class RequirementDialog(QDialog):
         standalone_dev_row.addWidget(QLabel('本地开发项目地址'))
         standalone_dev_row.addLayout(self._standalone_dev_row, 1)
         standalone_layout.addLayout(standalone_dev_row)
-        self.system_bindings_layout.addWidget(self._standalone_binding_host, 0, 0, 1, 2)
+        self.system_bindings_layout.addWidget(self._standalone_binding_host)
         self.actual_date = DateInput(base.get('actual_release_date') or base.get('actual_online_date', ''))
         for combo, value in (
             (self.kind_combo, inferred.get('record_kind') or base.get('record_kind', '需求')),
@@ -1027,6 +1051,32 @@ class RequirementDialog(QDialog):
                 'dev_local_path': widgets['dev'].text().strip(),
             }
 
+    def _on_binding_section_toggled(self, expanded: bool):
+        self._binding_user_toggled = True
+        self.system_bindings_body.setVisible(bool(expanded))
+        self._update_binding_header()
+
+    def _update_binding_header(self):
+        names = self.selected_systems()
+        expanded = self.binding_toggle_btn.isChecked()
+        arrow = '▾' if expanded else '▸'
+        if names:
+            filled = 0
+            for name in names:
+                widgets = self._binding_rows.get(name)
+                if widgets and (widgets['svn'].text().strip() or widgets['dev'].text().strip()):
+                    filled += 1
+            self.binding_toggle_btn.setText(f'{arrow} 开发分支 / 本地目录绑定（已选 {len(names)} 个系统 · 选填）')
+            self.binding_summary_hint.setText(
+                f'已配置 {filled}/{len(names)} · {"点击收起" if expanded else "点击展开"}'
+            )
+        else:
+            has_any = bool(self.svn_url_edit.text().strip() or self.dev_local_path_edit.text().strip())
+            self.binding_toggle_btn.setText(f'{arrow} 开发分支 / 本地目录绑定（选填）')
+            self.binding_summary_hint.setText(
+                ('已填写 · ' if has_any else '默认留空 · ') + ('点击收起' if expanded else '点击展开')
+            )
+
     def _rebuild_system_bindings(self):
         self._cache_binding_rows()
         while self.system_bindings_layout.count():
@@ -1050,43 +1100,61 @@ class RequirementDialog(QDialog):
                 seeded['dev_local_path'] = self.dev_local_path_edit.text().strip()
             self._binding_cache[first] = seeded
         if not has_systems:
-            self.system_bindings_layout.addWidget(self._standalone_binding_host, 0, 0, 1, 2)
+            self.system_bindings_layout.addWidget(self._standalone_binding_host)
             self._standalone_binding_host.show()
-        for index, name in enumerate(names):
+        any_filled = False
+        for name in names:
             cached = self._binding_cache.get(name) or {'svn_url': '', 'dev_local_path': ''}
+            if str(cached.get('svn_url') or '').strip() or str(cached.get('dev_local_path') or '').strip():
+                any_filled = True
             row = QWidget()
-            box = QVBoxLayout(row)
-            box.setContentsMargins(0, 0, 0, 2)
-            box.setSpacing(2)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(6)
             row.setMinimumWidth(0)
             row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            title = QLabel(f'{name} 的开发绑定')
-            title.setObjectName('field-hint')
-            box.addWidget(title)
+
+            title = QLabel(name)
+            title.setToolTip(f'{name} 的开发绑定')
+            title.setFixedWidth(132)
+            title.setStyleSheet('color: #262438; font-weight: 600; font-size: 12px; background: transparent;')
+            row_layout.addWidget(title)
+
             svn_edit = QLineEdit(cached.get('svn_url', ''))
             svn_edit.setProperty('editableField', True)
             size_line(svn_edit, 'path')
             svn_edit.setMinimumWidth(0)
-            svn_edit.setPlaceholderText('未配置则留空')
-            box.addWidget(svn_edit)
-            dev_row = QHBoxLayout()
+            svn_edit.setPlaceholderText('开发分支 SVN 地址（可留空）')
+            svn_edit.textChanged.connect(lambda *_: self._update_binding_header())
+            row_layout.addWidget(svn_edit, 1)
+
             dev_edit = QLineEdit(cached.get('dev_local_path', ''))
             dev_edit.setProperty('editableField', True)
             size_line(dev_edit, 'path')
             dev_edit.setMinimumWidth(0)
-            dev_edit.setPlaceholderText('本机开发工程目录')
-            pick_btn = QPushButton('选择目录')
+            dev_edit.setPlaceholderText('本机开发工程目录（可留空）')
+            dev_edit.textChanged.connect(lambda *_: self._update_binding_header())
+            row_layout.addWidget(dev_edit, 1)
+
+            pick_btn = QPushButton('选目录')
             size_compact_button(pick_btn)
             pick_btn.clicked.connect(lambda _=False, editor=dev_edit: self._pick_path_into(editor))
-            clear_btn = QPushButton('清除')
+            clear_btn = QPushButton('清空')
             size_compact_button(clear_btn)
-            clear_btn.clicked.connect(dev_edit.clear)
-            dev_row.addWidget(dev_edit, 1)
-            dev_row.addWidget(pick_btn)
-            dev_row.addWidget(clear_btn)
-            box.addLayout(dev_row)
-            self.system_bindings_layout.addWidget(row, index // 2, index % 2)
+            clear_btn.clicked.connect(lambda _=False, s=svn_edit, d=dev_edit: (s.clear(), d.clear()))
+            row_layout.addWidget(pick_btn)
+            row_layout.addWidget(clear_btn)
+
+            self.system_bindings_layout.addWidget(row)
             self._binding_rows[name] = {'svn': svn_edit, 'dev': dev_edit}
+
+        if not self._binding_user_toggled:
+            should_expand = any_filled or (not has_systems and bool(self.svn_url_edit.text().strip() or self.dev_local_path_edit.text().strip()))
+            self.binding_toggle_btn.blockSignals(True)
+            self.binding_toggle_btn.setChecked(should_expand)
+            self.binding_toggle_btn.blockSignals(False)
+            self.system_bindings_body.setVisible(should_expand)
+        self._update_binding_header()
         if hasattr(self, 'sql_system_combo'):
             self._refresh_sql_system_combo()
 
