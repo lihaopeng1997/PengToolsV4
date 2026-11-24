@@ -90,15 +90,29 @@ def main():
     from config import APP_NAME, APP_VERSION
     app = QApplication(sys.argv)
 
-    def _show_unexpected_error():
+    def _show_unexpected_error(summary=''):
+        log_dir = os.path.dirname(log_path) if log_path else ''
+        try:
+            from ui.confirm_dialog import show_unexpected_error_dialog
+            parent = app.activeWindow()
+            show_unexpected_error_dialog(parent=parent, log_dir=log_dir, summary=summary)
+            return
+        except Exception:
+            pass
         try:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(
-                None,
-                '出现意外错误',
-                '程序遇到意外错误，详细信息已写入日志。\n日志目录：'
-                + os.path.dirname(log_path),
-            )
+            box = QMessageBox(app.activeWindow())
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle('发生意外错误')
+            text = '程序刚才遇到一点小状况，详细信息已写入日志。'
+            if summary:
+                text += f'\n\n异常摘要：{summary}'
+            if log_dir:
+                text += f'\n日志目录：{log_dir}'
+            box.setText(text)
+            ok_btn = box.addButton('知道了', QMessageBox.ButtonRole.AcceptRole)
+            box.setDefaultButton(ok_btn)
+            box.exec()
         except Exception:
             pass
 
@@ -161,6 +175,7 @@ def main():
     window = MainWindow()
     window.setWindowIcon(app.windowIcon())
     window._single_instance_guard = guard
+    install_exception_hooks(on_interrupt=window.exit_application)
     wire_activate_handler(
         guard,
         window,

@@ -6,6 +6,7 @@ swallowed so a logging problem cannot replace the original crash.
 from __future__ import annotations
 
 import faulthandler
+import inspect
 import logging
 import logging.handlers
 import os
@@ -27,6 +28,8 @@ _state = {
     'handler': None,
     'hooks': False,
     'show_dialog': None,
+    'on_interrupt': None,
+    'interrupt_scheduled': False,
     'fault_file': None,
     'dialog_open': False,
     'dialog_at': 0.0,
@@ -85,10 +88,13 @@ def setup_logging(log_dir=None) -> str:
     return path
 
 
-def install_exception_hooks(show_dialog=None) -> None:
+def install_exception_hooks(show_dialog=None, on_interrupt=None) -> None:
     """Record uncaught exceptions. A dialog is optional and must not raise."""
     if show_dialog is not None:
         _state['show_dialog'] = show_dialog
+    if on_interrupt is not None:
+        _state['on_interrupt'] = on_interrupt
+        _state['interrupt_scheduled'] = False
     if _state.get('handler') is None:
         setup_logging()
     path = _state.get('path') or ''
@@ -223,7 +229,96 @@ def mask_private_ipv6(text: str) -> str:
     return raw
 
 
+def _is_exit_signal(exc_type) -> bool:
+    try:
+        return isinstance(exc_type, type) and issubclass(exc_type, (KeyboardInterrupt, SystemExit))
+    except Exception:
+        return False
+
+
+def _format_error_summary(exc_type, exc) -> str:
+    name = getattr(exc_type, '__name__', '') or type(exc).__name__
+    msg = ''
+    try:
+        raw = str(exc or '').strip()
+        first_line = raw.splitlines()[0].strip() if raw else ''
+        msg = redact_text(first_line) if first_line else ''
+    except Exception:
+        msg = ''
+    if len(msg) > 160:
+        msg = msg[:157] + '…'
+    if name and msg:
+        return f'{name}: {msg}'
+    return name or msg
+
+
+def _invoke_dialog(dialog, exc_type, exc) -> None:
+    accepts_detail = False
+    try:
+        sig = inspect.signature(dialog)
+        accepts_detail = any(
+            p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.VAR_POSITIONAL,
+            )
+            for p in sig.parameters.values()
+        )
+    except (TypeError, ValueError):
+        accepts_detail = False
+    if accepts_detail:
+        dialog(_format_error_summary(exc_type, exc))
+    else:
+        dialog()
+
+
+def _handle_interrupt_exit(exc_type) -> None:
+    """Handle Ctrl+C / SystemExit quietly without logging an error or popping a crash dialog."""
+    try:
+        logging.getLogger('pengtools').info(
+            '收到中断/退出信号（%s），正常退出',
+            getattr(exc_type, '__name__', 'Interrupt'),
+        )
+    except Exception:
+        pass
+    if threading.current_thread() is not threading.main_thread():
+        return
+    if not (isinstance(exc_type, type) and issubclass(exc_type, KeyboardInterrupt)):
+        return
+    if _state.get('interrupt_scheduled'):
+        return
+    _state['interrupt_scheduled'] = True
+
+    def _finish():
+        try:
+            handler = _state.get('on_interrupt')
+            if callable(handler):
+                handler()
+                return
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+        except Exception:
+            pass
+        finally:
+            _state['interrupt_scheduled'] = False
+
+    try:
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+        if QApplication.instance() is not None:
+            QTimer.singleShot(0, _finish)
+            return
+    except Exception:
+        pass
+    _finish()
+
+
 def _sys_excepthook(exc_type, exc, tb):
+    if _is_exit_signal(exc_type):
+        _handle_interrupt_exit(exc_type)
+        return
     try:
         logging.getLogger('pengtools').error(
             '未捕获的异常',
@@ -246,7 +341,7 @@ def _sys_excepthook(exc_type, exc, tb):
         _state['dialog_open'] = True
         _state['dialog_at'] = now
         try:
-            dialog()
+            _invoke_dialog(dialog, exc_type, exc)
         finally:
             _state['dialog_open'] = False
     except Exception:
@@ -255,6 +350,8 @@ def _sys_excepthook(exc_type, exc, tb):
 
 
 def _thread_excepthook(args):
+    if _is_exit_signal(getattr(args, 'exc_type', None)):
+        return
     try:
         logging.getLogger('pengtools.thread').error(
             '线程未捕获异常',

@@ -11,10 +11,13 @@ API：confirm_action / show_* / offer_next_steps；
 ask_close_action → (action, dont_ask) 或 None。
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QScrollArea,
+    QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QScrollArea,
 )
+import os
 import random
 
 from ui.design_system import apply_button
@@ -455,6 +458,173 @@ def show_warning(parent, title, message, button_text=None):
 
 def show_error(parent, title, message, button_text=None):
     return show_info(parent, title, message, kind='error', button_text=button_text)
+
+
+class UnexpectedErrorDialog(QDialog):
+    """全局兜底意外错误弹窗：统一 Prism 风格，展示脱敏摘要与一键打开日志目录。"""
+
+    def __init__(self, log_dir='', summary='', parent=None):
+        super().__init__(parent)
+        self._log_dir = str(log_dir or '').strip()
+        self._summary = str(summary or '').strip()
+        self.setObjectName('confirm-dialog')
+        self.setWindowTitle('发生意外错误')
+        self.setModal(True)
+
+        target_w = 460
+        clamp_dialog_geometry(self, target_w, min_width=380, min_height=168)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 16, 18, 14)
+        root.setSpacing(12)
+
+        # 头部：Prism 错误圆标 + 温和标题 + 说明
+        header_band = QFrame(self)
+        header_band.setObjectName('dialog-header')
+        header = QHBoxLayout(header_band)
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+        badge = make_badge_label('error', size=32, icon_size=17)
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+
+        title_wrap = QVBoxLayout()
+        title_wrap.setSpacing(3)
+        title_label = QLabel('程序刚才遇到一点小状况')
+        title_label.setObjectName('confirm-title')
+        title_label.setWordWrap(True)
+        title_wrap.addWidget(title_label)
+
+        subtitle = QLabel('详细堆栈已自动写入本地日志，通常不会影响已保存的数据。')
+        subtitle.setObjectName('field-hint')
+        subtitle.setWordWrap(True)
+        title_wrap.addWidget(subtitle)
+        header.addLayout(title_wrap, 1)
+        root.addWidget(header_band)
+
+        # 详情卡片：异常摘要 + 日志目录（可鼠标选中复制）
+        if self._summary or self._log_dir:
+            from ui.theme_manager import ThemeManager
+            tm = ThemeManager.instance()
+            muted = tm.token('TEXT_MUTED')
+            border = tm.token('BORDER')
+
+            card = QFrame(self)
+            card.setObjectName('confirm-card')
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(12, 10, 12, 10)
+            card_layout.setSpacing(6)
+
+            if self._summary:
+                sum_cap = QLabel('异常摘要')
+                sum_cap.setStyleSheet(
+                    f'color: {muted}; font-size: 11px; font-weight: 600; background: transparent;'
+                )
+                card_layout.addWidget(sum_cap)
+                sum_val = QLabel(self._summary)
+                sum_val.setObjectName('confirm-message')
+                sum_val.setWordWrap(True)
+                sum_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                card_layout.addWidget(sum_val)
+
+            if self._summary and self._log_dir:
+                divider = QFrame(card)
+                divider.setFixedHeight(1)
+                divider.setStyleSheet(f'background: {border}; border: none;')
+                card_layout.addWidget(divider)
+
+            if self._log_dir:
+                dir_cap = QLabel('日志目录')
+                dir_cap.setStyleSheet(
+                    f'color: {muted}; font-size: 11px; font-weight: 600; background: transparent;'
+                )
+                card_layout.addWidget(dir_cap)
+                dir_val = QLabel(self._log_dir)
+                dir_val.setObjectName('confirm-message')
+                dir_val.setWordWrap(True)
+                dir_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                card_layout.addWidget(dir_val)
+
+            root.addWidget(card)
+
+        # 底部操作区：左侧辅助动作（打开日志目录 / 复制摘要），右侧主动作（知道了）
+        footer = QFrame(self)
+        footer.setObjectName('dialog-footer')
+        buttons = QHBoxLayout(footer)
+        buttons.setContentsMargins(0, 2, 0, 0)
+        buttons.setSpacing(8)
+
+        self.open_log_button = None
+        if self._log_dir:
+            self.open_log_button = QPushButton('打开日志目录')
+            size_dialog_button(self.open_log_button, 'secondary')
+            self.open_log_button.setObjectName('confirm-cancel')
+            self.open_log_button.setAutoDefault(False)
+            self.open_log_button.clicked.connect(self._open_log_dir)
+            buttons.addWidget(self.open_log_button)
+
+        self.copy_button = None
+        if self._summary:
+            self.copy_button = QPushButton('复制摘要')
+            size_dialog_button(self.copy_button, 'secondary')
+            self.copy_button.setObjectName('confirm-cancel')
+            self.copy_button.setAutoDefault(False)
+            self.copy_button.clicked.connect(self._copy_summary)
+            buttons.addWidget(self.copy_button)
+
+        buttons.addStretch()
+
+        self.ok_button = QPushButton('知道了')
+        size_dialog_button(self.ok_button, 'primary')
+        self.ok_button.setObjectName('primary-btn')
+        self.ok_button.setDefault(True)
+        self.ok_button.setAutoDefault(True)
+        self.ok_button.clicked.connect(self.accept)
+        buttons.addWidget(self.ok_button)
+        root.addWidget(footer)
+
+        self.ok_button.setFocus()
+        self.ensurePolished()
+        root.activate()
+        natural_h = max(168, root.totalHeightForWidth(target_w))
+        clamp_dialog_geometry(self, target_w, natural_h, min_width=380, min_height=168)
+
+    def _open_log_dir(self):
+        if self._log_dir and os.path.isdir(self._log_dir):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._log_dir))
+
+    def _copy_summary(self):
+        cb = QApplication.clipboard()
+        if cb is None:
+            return
+        lines = []
+        if self._summary:
+            lines.append(self._summary)
+        if self._log_dir:
+            lines.append(f'日志目录：{self._log_dir}')
+        cb.setText('\n'.join(lines))
+        if self.copy_button is not None:
+            self.copy_button.setText('已复制')
+            timer = getattr(self, '_copy_reset_timer', None)
+            if timer is None:
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(self._reset_copy_button_text)
+                self._copy_reset_timer = timer
+            timer.start(1800)
+
+    def _reset_copy_button_text(self):
+        if self.copy_button is not None:
+            self.copy_button.setText('复制摘要')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from ui.motion import play_dialog_enter
+        play_dialog_enter(self)
+
+
+def show_unexpected_error_dialog(parent=None, log_dir='', summary=''):
+    dialog = UnexpectedErrorDialog(log_dir=log_dir, summary=summary, parent=parent)
+    return dialog.exec()
 
 
 class NextStepDialog(QDialog):
