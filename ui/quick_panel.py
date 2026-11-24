@@ -629,21 +629,22 @@ class QuickPanel(QWidget):
             return '#262438'
 
     def _apply_toggle_icon(self):
-        # 收起态是紫色渐变圆按钮，Logo 用白色
+        # 收起态是棱镜紫色悬浮球，Logo 用纯白高对比棱镜折叠 P + 星标
         tint = self._surface_tint() if self.expanded else '#FFFFFF'
-        pix = brand_pixmap('floating', size=22, tint=tint)
+        icon_size = 22 if self.expanded else 26
+        pix = brand_pixmap('floating', size=icon_size, tint=tint)
         if pix.isNull():
             # 最后回退：app ico 缩放，仍不使用文字 P
-            pix = brand_pixmap('app_ico', size=22, tint=tint)
+            pix = brand_pixmap('app_ico', size=icon_size, tint=tint)
         if not pix.isNull():
             self.toggle_btn.setIcon(QIcon(pix))
-            self.toggle_btn.setIconSize(QSize(22, 22))
+            self.toggle_btn.setIconSize(QSize(icon_size, icon_size))
             self.toggle_btn.setText('')
         else:
             self.toggle_btn.setText('')
 
     def _refresh_header_logo(self):
-        pix = brand_pixmap('floating', size=20, tint=self._theme_tint())
+        pix = brand_pixmap('floating', size=22, tint=self._theme_tint())
         if not pix.isNull():
             self.header_logo.setPixmap(pix)
 

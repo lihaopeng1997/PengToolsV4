@@ -1,23 +1,23 @@
-# PengTools 晴空棱镜品牌标识
+# PengTools 晴空棱镜品牌标识（V5 · Prism Fold）
 
 ## 标识含义
 
-“PengTools”晴空棱镜（Prism）品牌标识由紫色圆角棱镜底板、明亮白色字母 P 主体以及右上角淡青色棱镜星（Prism Star）构成：
+“PengTools”V5 晴空棱镜（Prism Fold）品牌标识由连续超椭圆棱镜底板、双层折叠几何字母 P 主体以及右上角对称四芒青辉棱镜星构成：
 
-- 紫色棱镜底板：`#9E8CF2` 至 `#6453D5` 渐变圆角方形（`rx="19"`），象征统一、现代、高效的聚合工作台。
-- 白色 P 主体：干练稳固的字母 P 路径，承载工具箱核心业务能力。
-- 右上淡青棱镜星：`#D7FBF2` 棱镜折射星标，象征灵动激发、快速洞察与智能辅助。
+- 紫色棱镜超椭圆底板：`#9A86FF → #6F57E8 → #4934B6` 三段景深渐变 + 左上柔光与右下青辉反光 + 玻璃内描边，象征高效聚合的现代桌面工作台。
+- 双层折叠几何 P：直立稳固的磨砂白立柱（后层）与高光纯白折叠环（前层）形成清晰棱镜折面，小尺寸仍保持通透内孔不糊边。
+- 对称四芒青辉棱镜星：`#EAFFFA → #6CEAD9` 对称四芒星标，象征智能辅助与即时洞察。
 
 ## 资源用途
 
 | 文件 | 用途 | 颜色 / 规范 |
 |---|---|---|
-| `pengtools-app-mark.svg` | 应用主 Logo / 侧栏品牌 | 晴空棱镜紫色渐变底板 + 白标 + 淡青棱镜星 |
-| `pengtools-app-v2.ico` | 软件标准多层应用图标 | 16/20/24/32/40/48/64/128/256 多尺寸 |
-| `pengtools-taskbar-hc.svg` | 高对比任务栏源图 | 棱镜实色底板 + 高对比纯白标志，黑/浅任务栏皆清晰 |
-| `pengtools-taskbar-hc.ico` | 窗口/任务栏/托盘/Alt+Tab 主图标 | 多尺寸 16–256，高对比独立优化 |
-| `pengtools-tray-mark.svg` | 系统托盘矢量回退 | `currentColor` 居中棱镜 P 标 |
-| `pengtools-floating-mark.svg` | 悬浮框开关按钮 | `currentColor` 居中棱镜 P 标（30px 视觉中心） |
+| `pengtools-app-mark.svg` | 应用主 Logo / 侧栏品牌 / 关于页 | 棱镜超椭圆三段渐变底板 + 双层折叠 P + 对称四芒星 |
+| `pengtools-app-v2.ico` | 软件标准多层应用图标 | 16/20/24/32/40/48/64/128/256 多尺寸（小尺寸独立微调） |
+| `pengtools-taskbar-hc.svg` | 高对比任务栏源图 | 饱和棱镜底板 + 紫青高光外环 + 粗壮折叠 P，深/浅任务栏皆清晰 |
+| `pengtools-taskbar-hc.ico` | 窗口/任务栏/托盘/EXE/Alt+Tab 主图标 | 多尺寸 16–256（16/20px 专用清晰内孔版） |
+| `pengtools-tray-mark.svg` | 系统托盘矢量回退 | `currentColor` 棱镜折叠切缝 P + 四芒星 |
+| `pengtools-floating-mark.svg` | 悬浮球开关与悬浮窗顶栏 Logo | `currentColor` 高填充率棱镜折叠切缝 P + 四芒星 |
 
 窗口、任务栏与托盘优先使用高对比 `pengtools-taskbar-hc.ico`，**不跟随夜间主题变暗**；侧栏导航与悬浮按钮仍使用现有主题 tint 图标，互不影响。
 

@@ -2230,15 +2230,16 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     border: none;
 }
 QPushButton#floating-toggle {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 __PRIMARY_GRAD_START__, stop:1 __PRIMARY_GRAD_END__);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9380FF, stop:0.55 #6C56E6, stop:1 #4E38BD);
     color: #FFFFFF;
-    border: 2px solid __SURFACE__;
+    border: 2px solid rgba(255, 255, 255, 238);
     border-radius: 22px;
     font-size: 1px;
     padding: 0;
 }
 QPushButton#floating-toggle:hover {
-    border-color: __PRIMARY_SOFT__;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9F8EFF, stop:0.55 #7660F0, stop:1 #5842CA);
+    border-color: #E3DCFF;
 }
 #floating-title {
     color: __TEXT_STRONG__;
