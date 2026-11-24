@@ -1807,9 +1807,9 @@ QDialog#confirm-dialog {
 }
 QLabel#confirm-title {
     color: __TEXT_STRONG__;
-    font-size: __FONT_SIZE_PAGE_TITLE__;
-    font-weight: __FONT_WEIGHT_PAGE_TITLE__;
-    letter-spacing: 0.2px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.1px;
     background: transparent;
 }
 QFrame#confirm-card {
