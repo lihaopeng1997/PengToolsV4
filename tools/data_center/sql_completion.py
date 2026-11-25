@@ -159,6 +159,39 @@ def _quote(name, dialect):
     return quote + name.replace(quote, quote * 2) + quote
 
 
+def _active_tables(objects, sql, code, position, dialect):
+    """提取当前 SQL 语句 FROM/JOIN/UPDATE/INTO 引用的表，用于无前缀字段联想。"""
+    begin = code.rfind(";", 0, position) + 1
+    end = code.find(";", position)
+    end = len(code) if end < 0 else end
+    segment = code[begin:end]
+    found = []
+    seen = set()
+    for match in re.finditer(r"(?i)\b(?:FROM|JOIN|UPDATE|INTO)\b", segment):
+        pos = _trivia(sql, code, begin + match.end())
+        parts = []
+        while True:
+            item = _identifier(sql, pos)
+            if item is None:
+                break
+            value, pos, quoted = item
+            parts.append((value, quoted))
+            pos = _trivia(sql, code, pos)
+            if pos < end and sql[pos] == ".":
+                pos = _trivia(sql, code, pos + 1)
+                continue
+            break
+        if not parts:
+            continue
+        table = _resolve(objects, parts, dialect)
+        if table is not None:
+            key = (str(table.get("owner") or ""), str(table.get("name") or ""))
+            if key not in seen:
+                seen.add(key)
+                found.append(table)
+    return found
+
+
 def completion_candidates(snapshot, sql, position, prefix, keywords):
     dialect = str(snapshot.get("dialect") or "generic")
     if len(sql) > 256 * 1024:
@@ -195,6 +228,14 @@ def completion_candidates(snapshot, sql, position, prefix, keywords):
                 if isinstance(col, dict) and isinstance(col.get("name"), str) and col['name'].casefold().startswith(partial.casefold())][:1024]
     low = prefix.lstrip('"`').casefold()
     hits = [kw for kw in keywords if kw.casefold().startswith(low)]
+    # 优先补全当前语句已引用表的无前缀字段（类似 PL/SQL / DBX 体验）
+    for tbl in _active_tables(objects, sql, code, position, dialect):
+        for col in tbl.get("columns") or ():
+            if not isinstance(col, dict) or not isinstance(col.get("name"), str):
+                continue
+            cname = col["name"]
+            if not low or cname.casefold().startswith(low):
+                hits.append(_quote(cname, dialect))
     for obj in objects:
         name = obj["name"]
         compact, needle = name.casefold().replace("_", ""), low.replace("_", "")

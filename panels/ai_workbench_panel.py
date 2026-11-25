@@ -1781,7 +1781,9 @@ class AiWorkbenchPanel(QWidget):
     def _cancel_scan(self):
         if self._worker is not None:
             self._worker.cancelled = True
-        self.loading.cancel('扫描已取消' if self.language == 'zh' else 'Scan cancelled', token=getattr(self, '_db_token', None))
+        msg = '扫描已取消' if self.language == 'zh' else 'Scan cancelled'
+        self.result_status.setText(msg, querying=False)
+        self.loading.cancel(msg, token=getattr(self, '_db_token', None))
 
     def _on_db_ok(self, kind: str, payload: dict, kwargs: dict, *, token: int | None = None):
         if token is not None and token != getattr(self, '_db_token', None):
@@ -1805,12 +1807,16 @@ class AiWorkbenchPanel(QWidget):
             count = len((payload or {}).get('objects') or [])
             warning = str((payload or {}).get('warning') or '')
             if str((payload or {}).get('status') or '') == 'failed':
-                self.loading.fail(warning or ('扫描失败' if zh else 'Scan failed'), token=token)
-                show_error(self, self._title(), warning or ('扫描失败' if zh else 'Scan failed'))
+                fail_msg = warning or ('扫描失败' if zh else 'Scan failed')
+                self.result_status.setText(fail_msg, querying=False)
+                self.loading.fail(fail_msg, token=token)
+                show_error(self, self._title(), fail_msg)
                 self._log_msg(f'扫描失败: {warning}')
                 return
-            self.loading.finish(f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)', token=token)
-            show_info(self, self._title(), f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)')
+            done_msg = f'已扫描 {count} 个对象' if zh else f'Scanned {count} object(s)'
+            self.result_status.setText(done_msg, querying=False)
+            self.loading.finish(done_msg, token=token)
+            show_info(self, self._title(), done_msg)
             self._log_msg(f'扫描完成，对象 {count}')
             return
         if kind in ('query', 'fetch_all'):

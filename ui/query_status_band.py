@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 
 from PyQt6.QtCore import QEvent, QRectF, Qt, QTimer
-from PyQt6.QtGui import QPainter, QPen
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from ui.motion import motion_enabled
@@ -28,6 +28,15 @@ _QUERY_PREFIXES = (
     'working',
 )
 
+_ERROR_TOKENS = (
+    '失败', '不可用', '错误', '异常', '超时', '拒绝', '中断',
+    'failed', 'error', 'unavailable', 'timeout', 'denied', 'exception',
+)
+_OK_TOKENS = (
+    '已返回', '已获取', '已扫描', '已完成', '已提交', '已回滚', '成功', '就绪', '行',
+    'ready', 'done', 'ok', 'rows', 'committed', 'scanned',
+)
+
 
 class _StatusIcon(QWidget):
     def __init__(self, parent=None):
@@ -35,10 +44,15 @@ class _StatusIcon(QWidget):
         self.setFixedSize(16, 16)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._querying = False
+        self._tone = 'idle'
         self._started = 0.0
         self._timer = QTimer(self)
         self._timer.setInterval(28)
         self._timer.timeout.connect(self.update)
+
+    def set_tone(self, tone: str) -> None:
+        self._tone = str(tone or 'idle')
+        self.update()
 
     def set_querying(self, querying: bool) -> None:
         querying = bool(querying)
@@ -66,16 +80,23 @@ class _StatusIcon(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        accent, _muted = thinking_colors()
-        pen = QPen(accent, 1.6)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        if self._querying and motion_enabled():
-            angle = ((time.monotonic() - self._started) / 0.9) * 360.0
+        if self._querying:
+            accent, _muted = thinking_colors()
+            pen = QPen(accent, 1.8)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            angle = ((time.monotonic() - self._started) / 0.9) * 360.0 if motion_enabled() else 90.0
+            painter.drawArc(QRectF(2, 2, 12, 12), int(angle * 16), 110 * 16)
         else:
-            angle = 90.0
-        painter.drawArc(QRectF(1, 1, 14, 14), int(angle * 16), 90 * 16)
+            color = (
+                QColor('#DC2626') if self._tone == 'error'
+                else QColor('#10B981') if self._tone == 'ok'
+                else QColor('#A59FC0')
+            )
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawEllipse(QRectF(4.5, 4.5, 7.0, 7.0))
 
 
 class QueryStatusBand(QWidget):
@@ -101,9 +122,18 @@ class QueryStatusBand(QWidget):
         value = str(text or '')
         self._full_text = value
         self._refresh_label_display()
+        folded = value.strip().casefold()
         if querying is None:
-            folded = value.strip().casefold()
             querying = folded.startswith(_QUERY_PREFIXES)
+        if querying:
+            tone = 'busy'
+        elif any(tok in folded for tok in _ERROR_TOKENS):
+            tone = 'error'
+        elif any(tok in folded for tok in _OK_TOKENS):
+            tone = 'ok'
+        else:
+            tone = 'idle'
+        self._icon.set_tone(tone)
         self._icon.set_querying(bool(querying))
 
     def text(self) -> str:

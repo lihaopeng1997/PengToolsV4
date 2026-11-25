@@ -3,12 +3,86 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+import math
+
+from PyQt6.QtCore import QEvent, QObject, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QTextOption
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QPushButton, QSizePolicy,
     QToolButton, QVBoxLayout,
 )
+
+
+class _AutoGrowFilter(QObject):
+    """根据输入行数自动平滑调整 QPlainTextEdit 高度（从紧凑单行随内容增高至上限）。"""
+
+    def __init__(self, edit: QPlainTextEdit, *, min_height: int = 44, max_height: int = 168):
+        super().__init__(edit)
+        self._edit = edit
+        self._min_h = max(32, int(min_height))
+        self._max_h = max(self._min_h, int(max_height))
+        self._last_h = self._min_h
+        edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        edit.setFixedHeight(self._min_h)
+        edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        edit.installEventFilter(self)
+        edit.textChanged.connect(self.sync)
+        doc_layout = edit.document().documentLayout()
+        if doc_layout is not None:
+            doc_layout.documentSizeChanged.connect(lambda _sz: self.sync())
+        QTimer.singleShot(0, self.sync)
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self._edit and event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            self.sync()
+        return super().eventFilter(watched, event)
+
+    def sync(self) -> None:
+        edit = self._edit
+        if not edit.toPlainText():
+            clamped = self._min_h
+            if edit.verticalScrollBarPolicy() != Qt.ScrollBarPolicy.ScrollBarAlwaysOff:
+                edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            if clamped != self._last_h:
+                self._last_h = clamped
+                edit.setFixedHeight(clamped)
+                edit.updateGeometry()
+            return
+        doc = edit.document()
+        doc_layout = doc.documentLayout()
+        # QPlainTextEdit 的 documentSize().height() 是视觉行数（含自动换行）
+        raw_lines = float(doc_layout.documentSize().height()) if doc_layout is not None else float(doc.blockCount())
+        lines = max(1.0, raw_lines)
+        line_h = max(18, edit.fontMetrics().lineSpacing())
+        cm = edit.contentsMargins()
+        frame = edit.frameWidth()
+        doc_margin = math.ceil(doc.documentMargin() * 2)
+        # cm 已包含 QSS 上下 padding，仅加 4px 视觉余量，避免空输入框虚高
+        wanted = math.ceil(lines * line_h) + doc_margin + cm.top() + cm.bottom() + frame * 2 + 4
+        clamped = max(self._min_h, min(self._max_h, wanted))
+        need_scroll = wanted > self._max_h
+        policy = (
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if need_scroll
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        if edit.verticalScrollBarPolicy() != policy:
+            edit.setVerticalScrollBarPolicy(policy)
+        if clamped != self._last_h:
+            self._last_h = clamped
+            edit.setFixedHeight(clamped)
+            edit.updateGeometry()
+
+
+def install_autogrow_plain_edit(
+    edit: QPlainTextEdit,
+    *,
+    min_height: int = 44,
+    max_height: int = 168,
+) -> _AutoGrowFilter:
+    flt = _AutoGrowFilter(edit, min_height=min_height, max_height=max_height)
+    edit._autogrow_filter = flt
+    return flt
 
 
 class Composer(QFrame):
@@ -25,13 +99,14 @@ class Composer(QFrame):
         self.setObjectName('chat-composer-card')
         self.setProperty('compactComposer', self._compact)
         self.setProperty('focused', False)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(self)
         if self._compact:
             layout.setContentsMargins(10, 8, 8, 8)
             layout.setSpacing(4)
         else:
-            layout.setContentsMargins(12, 12, 12, 12)
-            layout.setSpacing(8)
+            layout.setContentsMargins(12, 10, 12, 10)
+            layout.setSpacing(6)
         self.attachment_bar = QLabel()
         self.attachment_bar.setObjectName('field-hint')
         self.attachment_bar.setWordWrap(True)
@@ -39,11 +114,13 @@ class Composer(QFrame):
         layout.addWidget(self.attachment_bar)
         self.input = QPlainTextEdit()
         self.input.setObjectName('chat-composer-input')
-        self.input.setMinimumHeight(40 if self._compact else 120)
-        if self._compact:
-            self.input.setMaximumHeight(64)
-            self.input.setFrameShape(QFrame.Shape.NoFrame)
+        self.input.setFrameShape(QFrame.Shape.NoFrame)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        install_autogrow_plain_edit(
+            self.input,
+            min_height=40 if self._compact else 46,
+            max_height=76 if self._compact else 168,
+        )
         self.input.installEventFilter(self)
         row = QHBoxLayout()
         row.setSpacing(8)

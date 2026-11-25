@@ -9,8 +9,10 @@ from tools.agent_core.runner import run_agent as _shared_run_agent
 from tools.agent_core.contracts import ToolCall
 
 
+# 仅真实数据查询计入只读查询预算（search_objects / describe_object 属于元数据探查，
+# 由总步数上限约束，避免宽表翻阅表结构耗尽查询预算导致永远执行不了 SELECT）。
 _QUERY_TOOL_NAMES = frozenset({
-    "search_objects", "describe_object", "query_readonly", "query_read_only",
+    "query_readonly", "query_read_only",
     "sql_query", "read_query", "mongo_read", "redis_read",
 })
 

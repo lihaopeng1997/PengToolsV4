@@ -981,6 +981,10 @@ def _connect_oceanbase_oracle(item: dict, plain_password: str | None = None):
 
     try:
         raw_conn = pyodbc.connect(conn_str, timeout=8, autocommit=False)
+        try:
+            raw_conn.timeout = 20
+        except Exception:
+            pass
     except Exception as exc:
         msg = _oceanbase_oracle_error_message(exc, item, plain_password=password)
         raise DbError(msg) from exc
@@ -1066,6 +1070,7 @@ def open_connection(item: dict, plain_password: str | None = None):
             return pymysql.connect(
                 host=host, port=port, user=username, password=password,
                 database=database or None, charset='utf8mb4',
+                connect_timeout=8, read_timeout=20, write_timeout=20,
                 cursorclass=pymysql.cursors.Cursor,
             )
         except Exception as exc:

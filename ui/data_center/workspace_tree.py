@@ -251,6 +251,7 @@ class WorkspaceTree(QTreeView):
     directory_more_requested = pyqtSignal(str, object, object, str, int)
     directory_node_activated = pyqtSignal(str, object, object, int)
     directory_node_structure_requested = pyqtSignal(str, object, object, int)
+    directory_node_select_sql_requested = pyqtSignal(str, object, object, int)
     directory_node_export_requested = pyqtSignal(str, object, object, int)
 
     def __init__(self, *, language: str = "zh", parent: QWidget | None = None):
@@ -729,18 +730,37 @@ class WorkspaceTree(QTreeView):
         connection_item = self._connection_items.get(connection_id)
         if connection_item is not None and bool(connection_item.data(TREE_CLOSING_ROLE)):
             return
+        gen = int(item.data(TREE_GENERATION_ROLE) or 0)
+        zh = self.language == "zh"
+        tbl_name = str(getattr(node, "name", "") or getattr(node, "label", "") or "").strip()
+        schema_name = str(getattr(node, "schema", "") or getattr(node, "database", "") or "").strip()
+        qualified = f"{schema_name}.{tbl_name}" if schema_name and tbl_name else tbl_name
+
         menu = QMenu(self)
-        action = menu.addAction("查看表结构" if self.language == "zh" else "View structure")
-        action.triggered.connect(
-            lambda: self.directory_node_structure_requested.emit(
-                connection_id, target, node, int(item.data(TREE_GENERATION_ROLE) or 0)
-            )
+        act_query = menu.addAction("查询前 200 行" if zh else "Query top 200 rows")
+        act_query.triggered.connect(
+            lambda: self.directory_node_activated.emit(connection_id, target, node, gen)
         )
-        export = menu.addAction("导出表数据…" if self.language == "zh" else "Export table data…")
+        action = menu.addAction("查看表结构" if zh else "View structure")
+        action.triggered.connect(
+            lambda: self.directory_node_structure_requested.emit(connection_id, target, node, gen)
+        )
+        act_sql = menu.addAction("生成 SELECT 语句" if zh else "Generate SELECT SQL")
+        act_sql.triggered.connect(
+            lambda: self.directory_node_select_sql_requested.emit(connection_id, target, node, gen)
+        )
+        menu.addSeparator()
+        if tbl_name:
+            from PyQt6.QtWidgets import QApplication
+            act_copy = menu.addAction("复制表名" if zh else "Copy table name")
+            act_copy.triggered.connect(lambda: QApplication.clipboard().setText(tbl_name))
+            if qualified and qualified != tbl_name:
+                act_copy_q = menu.addAction("复制全限定名" if zh else "Copy qualified name")
+                act_copy_q.triggered.connect(lambda: QApplication.clipboard().setText(qualified))
+            menu.addSeparator()
+        export = menu.addAction("导出表数据…" if zh else "Export table data…")
         export.triggered.connect(
-            lambda: self.directory_node_export_requested.emit(
-                connection_id, target, node, int(item.data(TREE_GENERATION_ROLE) or 0)
-            )
+            lambda: self.directory_node_export_requested.emit(connection_id, target, node, gen)
         )
         menu.exec(self.viewport().mapToGlobal(pos))
 

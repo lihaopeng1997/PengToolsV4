@@ -1169,27 +1169,24 @@ QTreeWidget#requirement-tree {
 QTreeWidget#requirement-tree::item {
     min-height: 32px;
     padding: 5px 8px 5px 6px;
-    color: __TEXT_STRONG__;
     border-bottom: 1px solid __BORDER__;
     border-radius: 6px;
     margin: 1px 2px;
 }
-/* 分组节点：企业级台账 / 网盘文件夹感 */
+/* 分组节点：浅紫清透分组条（保留 item.setForeground 阶段鲜明色） */
 QTreeWidget#requirement-tree::item:has-children {
     min-height: 30px;
     padding: 7px 10px 7px 6px;
     background: __MONTH_HEADER_BG__;
-    color: __MONTH_HEADER_FG__;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 700;
     border-bottom: 1px solid __BORDER_STRONG__;
     border-radius: 6px;
     margin: 2px 2px;
 }
-QTreeWidget#requirement-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
+QTreeWidget#requirement-tree::item:hover { background: __PRIMARY_SOFT__; }
 QTreeWidget#requirement-tree::item:has-children:hover {
     background: __PRIMARY_SOFT__;
-    color: __TEXT_STRONG__;
 }
 /* 选中：主题软底 + 主色字 + 左侧强调，避免晴空/系统蓝块 */
 QTreeWidget#requirement-tree::item:selected,
@@ -3360,17 +3357,19 @@ QFrame#settings-brand-showcase {
 }
 QFrame#settings-brand-showcase QLabel { background: transparent; }
 QLabel#settings-brand-title { font-size: __FONT_SIZE_PAGE_TITLE__; font-weight: __FONT_WEIGHT_PAGE_TITLE__; }
-QListWidget#chat-session-list { background: transparent; border: none; outline: none; }
+QListWidget#chat-session-list {
+    background: transparent;
+    border: none;
+    outline: none;
+}
 QListWidget#chat-session-list::item {
-    min-height: 48px;
-    padding: 8px;
-    margin-bottom: 6px;
-    border-radius: 8px;
-    color: __TEXT_MUTED__;
+    background: transparent;
+    border: none;
+    padding: 0px;
+    margin: 0px;
 }
 QListWidget#chat-session-list::item:selected {
-    background: __PRIMARY_SOFT__;
-    color: __PRIMARY__;
+    background: transparent;
 }
 
 /* ── Global workbench contract: density, focus, page chrome and status ── */
@@ -3737,7 +3736,19 @@ QFrame#chat-composer-card QLabel#field-hint {
     font-family: __FONT_UI__;
     font-size: 12px;
 }
-QTextBrowser#chat-markdown,
+QTextBrowser#chat-markdown {
+    background: transparent;
+    color: __TEXT__;
+    border: none;
+    outline: none;
+    padding: 0px;
+    font-family: __FONT_UI__;
+    font-size: 14px;
+}
+QTextBrowser#chat-markdown:focus {
+    border: none;
+    outline: none;
+}
 QLabel#chat-thinking-body {
     background: transparent;
     color: __TEXT__;
@@ -3782,10 +3793,16 @@ QPlainTextEdit#chat-code-edit {
     background: __TERM_BG__;
     color: __TERM_FG__;
     border: none;
+    outline: none;
+    padding: 6px 10px;
     font-family: __FONT_MONO__;
     font-size: 12.5px;
     selection-background-color: __TERM_SEL__;
     selection-color: __TERM_FG__;
+}
+QPlainTextEdit#chat-code-edit:focus {
+    border: none;
+    outline: none;
 }
 QFrame#chat-code-block QPushButton#chat-copy-btn {
     color: __TERM_FG__;
@@ -4158,24 +4175,38 @@ QPushButton#req-role-seg:checked {
     color: __PRIMARY_ACTIVE__;
 }
 QPushButton#req-stat-chip, QPushButton#req-group-toggle {
-    background: transparent;
-    color: __TEXT_MUTED__;
-    border: 1px solid transparent;
+    background: __SURFACE__;
+    color: __TEXT__;
+    border: 1px solid __BORDER__;
     border-radius: 8px;
     padding: 2px 10px;
     min-height: 24px;
     font-size: 12px;
+    font-weight: 500;
 }
 QPushButton#req-stat-chip:hover, QPushButton#req-group-toggle:hover {
-    border-color: __BORDER__;
+    border-color: __PRIMARY__;
     color: __TEXT_STRONG__;
 }
 QPushButton#req-stat-chip:checked, QPushButton#req-group-toggle:checked {
     background: __PRIMARY_SOFT__;
     color: __PRIMARY_ACTIVE__;
-    border-color: __PRIMARY_SOFT__;
-    font-weight: 600;
+    border-color: __PRIMARY__;
+    font-weight: 700;
 }
+/* 状态统计筛选胶囊：按阶段赋予鲜明语义色 */
+QPushButton#req-stat-chip[tone="analysis"] { background: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
+QPushButton#req-stat-chip[tone="analysis"]:checked { background: #2563EB; color: #FFFFFF; border-color: #2563EB; }
+QPushButton#req-stat-chip[tone="develop"] { background: #F3F0FF; color: #503DBE; border-color: #D8CEFA; }
+QPushButton#req-stat-chip[tone="develop"]:checked { background: #6C58D9; color: #FFFFFF; border-color: #6C58D9; }
+QPushButton#req-stat-chip[tone="testing"] { background: #FFFBEB; color: #B45309; border-color: #FDE68A; }
+QPushButton#req-stat-chip[tone="testing"]:checked { background: #D97706; color: #FFFFFF; border-color: #D97706; }
+QPushButton#req-stat-chip[tone="release"] { background: #ECFEFF; color: #0E7490; border-color: #A5F3FC; }
+QPushButton#req-stat-chip[tone="release"]:checked { background: #0891B2; color: #FFFFFF; border-color: #0891B2; }
+QPushButton#req-stat-chip[tone="online"] { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+QPushButton#req-stat-chip[tone="online"]:checked { background: #059669; color: #FFFFFF; border-color: #059669; }
+QPushButton#req-stat-chip[tone="paused"] { background: #FEF2F2; color: #B91C1C; border-color: #FECACA; }
+QPushButton#req-stat-chip[tone="paused"]:checked { background: #DC2626; color: #FFFFFF; border-color: #DC2626; }
 QFrame#ops-mode-seg {
     background: __SURFACE_SOFT__;
     border: 1px solid __BORDER__;
@@ -4228,7 +4259,7 @@ QTreeWidget#requirement-tree::item {
     min-height: 30px;
     padding: 0 4px;
 }
-/* V3 列表：扁平单行，不再逐格圆角/左强调线 */
+/* V3 列表：扁平单行，不覆盖 ForegroundRole 以保留鲜明阶段/状态色与加粗 */
 QTreeWidget#requirement-tree {
     background: transparent;
     border: none;
@@ -4241,27 +4272,24 @@ QTreeWidget#requirement-tree::item {
     border-bottom: 1px solid __BORDER__;
     border-radius: 0;
     margin: 0;
-    font-weight: 400;
 }
 QTreeWidget#requirement-tree::item:has-children {
-    background: transparent;
-    color: __TEXT_MUTED__;
+    background: #F6F3FD;
     font-size: 12px;
-    padding: 0 4px;
-    border-bottom: none;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-bottom: 1px solid #EAE4F7;
 }
 QTreeWidget#requirement-tree::item:selected,
 QTreeWidget#requirement-tree::item:selected:active,
 QTreeWidget#requirement-tree::item:selected:!active {
     background: __TABLE_SELECT__;
-    color: __PRIMARY_ACTIVE__;
     border: none;
-    border-bottom: 1px solid __BORDER__;
-    font-weight: 400;
+    border-bottom: 1px solid __BORDER_STRONG__;
 }
 QTreeWidget#requirement-tree::item:has-children:selected,
 QTreeWidget#requirement-tree::item:has-children:hover {
-    background: transparent;
+    background: #EFEBF9;
     border: none;
 }
 
@@ -4330,25 +4358,44 @@ QTabBar::close-button:hover {
     background: __BORDER__;
 }
 
-/* 工作区页签栏右侧的小操作（+ 查询 / AI / 收起目录） */
-QPushButton[cornerAction="true"], QPushButton#btn-ghost[cornerAction="true"] {
+/* 工作区页签栏右侧的小操作（+ 查询 / 独立窗口 / AI / 引导 / 收起目录） */
+QPushButton[cornerAction="true"],
+QPushButton#btn-ghost[cornerAction="true"],
+QPushButton#btn-ghost[compactAction="true"][cornerAction="true"] {
     background: __SURFACE__;
     border: 1px solid __BORDER_STRONG__;
-    border-radius: 12px;
-    padding: 0px 14px;
+    border-radius: 8px;
+    min-height: 24px;
+    max-height: 24px;
+    min-width: 0px;
+    padding: 0px 10px;
     color: __PRIMARY_ACTIVE__;
+    font-size: 12px;
     font-weight: 600;
 }
-QPushButton[cornerAction="true"]:hover, QPushButton#btn-ghost[cornerAction="true"]:hover {
+QPushButton[cornerAction="true"]:hover,
+QPushButton#btn-ghost[cornerAction="true"]:hover,
+QPushButton#btn-ghost[compactAction="true"][cornerAction="true"]:hover {
     background: __PRIMARY_SOFT__;
     border-color: __PRIMARY__;
 }
-QPushButton[cornerAction="true"]:checked, QPushButton#btn-ghost[cornerAction="true"]:checked {
+QPushButton[cornerAction="true"]:checked,
+QPushButton#btn-ghost[cornerAction="true"]:checked,
+QPushButton#btn-ghost[compactAction="true"][cornerAction="true"]:checked {
     background: __PRIMARY__;
     border-color: __PRIMARY__;
     color: #FFFFFF;
 }
-QPushButton[cornerPlain="true"]:checked, QPushButton#btn-ghost[cornerPlain="true"]:checked {
+QPushButton[cornerPlain="true"],
+QPushButton#btn-ghost[cornerPlain="true"],
+QPushButton#btn-ghost[compactAction="true"][cornerPlain="true"] {
+    padding: 0px;
+    min-width: 26px;
+    max-width: 28px;
+}
+QPushButton[cornerPlain="true"]:checked,
+QPushButton#btn-ghost[cornerPlain="true"]:checked,
+QPushButton#btn-ghost[compactAction="true"][cornerPlain="true"]:checked {
     background: __SURFACE__;
     border-color: __BORDER_STRONG__;
     color: __PRIMARY_ACTIVE__;

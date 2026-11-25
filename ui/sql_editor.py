@@ -10,11 +10,17 @@ from PyQt6.QtWidgets import QCompleter, QMenu, QPlainTextEdit, QWidget
 from tools.data_center.sql_completion import completion_candidates, current_token
 
 SQL_KEYWORDS = (
-    'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
-    'GROUP BY', 'ORDER BY', 'HAVING', 'INSERT', 'UPDATE', 'DELETE', 'MERGE',
-    'WITH', 'CREATE', 'ALTER', 'DROP', 'UNION', 'CASE', 'WHEN', 'THEN', 'ELSE',
-    'END', 'AND', 'OR', 'IN', 'EXISTS', 'LIKE', 'IS NULL', 'IS NOT NULL',
-    'SELECT * FROM',
+    'SELECT', 'SELECT * FROM', 'SELECT COUNT(*) FROM', 'FROM', 'WHERE',
+    'AND', 'OR', 'NOT', 'IN', 'NOT IN', 'BETWEEN', 'LIKE', 'IS NULL', 'IS NOT NULL',
+    'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'ON', 'AS', 'DISTINCT',
+    'GROUP BY', 'ORDER BY', 'HAVING', 'DESC', 'ASC',
+    'FETCH FIRST 200 ROWS ONLY', 'ROWNUM <= 200', 'LIMIT 200', 'OFFSET',
+    'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'MERGE INTO',
+    'WITH', 'UNION', 'UNION ALL', 'CASE WHEN', 'THEN', 'ELSE', 'END', 'EXISTS',
+    'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'DUAL',
+    'COUNT(*)', 'SUM()', 'AVG()', 'MAX()', 'MIN()',
+    'TRUNC(SYSDATE)', 'SYSDATE', 'TO_CHAR()', 'TO_DATE()', 'NVL()', 'COALESCE()',
+    'NOW()', 'DATE_FORMAT()', 'SUBSTR()', 'TRIM()', 'ROUND()',
 )
 
 
@@ -239,7 +245,11 @@ class SqlEditor(QPlainTextEdit):
                     # another startsWith filter hides valid quoted suggestions.
                     self._completer.setCompletionPrefix('')
                     cr = self.cursorRect()
-                    cr.setWidth(self._completer.popup().sizeHintForColumn(0) + 24)
+                    cr.translate(self.viewport().pos())
+                    cr.moveTop(cr.bottom() + 2)
+                    popup = self._completer.popup()
+                    width = max(220, popup.sizeHintForColumn(0) + popup.verticalScrollBar().sizeHint().width() + 28)
+                    cr.setWidth(min(440, width))
                     self._completer.complete(cr)
                     return
         if popup is not None:

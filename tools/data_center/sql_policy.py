@@ -56,12 +56,85 @@ _BLOCKED_QUALIFIERS = frozenset(
     }
 )
 _BLOCKED_QUALIFIER_PREFIXES = ("UTL_", "DBMS_")
-# SQLGlot represents functions it does not know as ``exp.Anonymous``.  Keep
-# that extension point closed: a stored function/UDF may perform writes,
-# external I/O, or session mutation even when its outer statement is SELECT.
-# These two MySQL introspection functions are explicitly treated as pure reads
-# for the supported Agent surface.
-_ALLOWED_ANONYMOUS_FUNCTIONS = frozenset({"CONNECTION_ID", "IS_USED_LOCK"})
+# SQLGlot represents vendor functions it does not natively model as
+# ``exp.Anonymous``. Keep mutating/external-I/O UDFs closed, while explicitly
+# allowlisting standard pure read-only Oracle / OceanBase / MySQL / DM scalar
+# and aggregate functions so everyday queries (e.g. TRUNC(col) = TRUNC(SYSDATE),
+# NVL, TO_CHAR, NOW, DATE_FORMAT) work seamlessly.
+_ALLOWED_ANONYMOUS_FUNCTIONS = frozenset(
+    {
+        "CONNECTION_ID",
+        "IS_USED_LOCK",
+        # Oracle / OceanBase Oracle / Dameng read-only date, string, null & math
+        "TRUNC",
+        "SYSDATE",
+        "SYSTIMESTAMP",
+        "CURRENT_DATE",
+        "CURRENT_TIMESTAMP",
+        "ADD_MONTHS",
+        "MONTHS_BETWEEN",
+        "LAST_DAY",
+        "NEXT_DAY",
+        "TO_DATE",
+        "TO_CHAR",
+        "TO_NUMBER",
+        "TO_TIMESTAMP",
+        "NVL",
+        "NVL2",
+        "DECODE",
+        "COALESCE",
+        "NULLIF",
+        "SUBSTR",
+        "INSTR",
+        "LENGTH",
+        "LENGTHB",
+        "TRIM",
+        "LTRIM",
+        "RTRIM",
+        "LPAD",
+        "RPAD",
+        "UPPER",
+        "LOWER",
+        "INITCAP",
+        "REPLACE",
+        "TRANSLATE",
+        "CONCAT",
+        "REGEXP_LIKE",
+        "REGEXP_SUBSTR",
+        "REGEXP_INSTR",
+        "REGEXP_COUNT",
+        "ROUND",
+        "FLOOR",
+        "CEIL",
+        "CEILING",
+        "ABS",
+        "MOD",
+        "SIGN",
+        "GREATEST",
+        "LEAST",
+        "LISTAGG",
+        "WM_CONCAT",
+        # MySQL / OceanBase MySQL read-only functions
+        "NOW",
+        "CURDATE",
+        "CURTIME",
+        "UNIX_TIMESTAMP",
+        "FROM_UNIXTIME",
+        "DATE_FORMAT",
+        "STR_TO_DATE",
+        "TO_DAYS",
+        "DATEDIFF",
+        "TIMESTAMPDIFF",
+        "DATE_ADD",
+        "DATE_SUB",
+        "IFNULL",
+        "GROUP_CONCAT",
+        "LEFT",
+        "RIGHT",
+        "LOCATE",
+        "CHAR_LENGTH",
+    }
+)
 _EXECUTABLE_COMMENT_START = re.compile(r"/\*\s*(?:!|m!)", re.IGNORECASE)
 _BLOCKED_PACKAGE_NAME = re.compile(r"(?:UTL_|DBMS_)[A-Za-z0-9_$#]*", re.IGNORECASE)
 

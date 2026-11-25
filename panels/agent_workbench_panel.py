@@ -649,11 +649,12 @@ class AgentWorkbenchPanel(QWidget):
         left_l.addLayout(ws_manage_row)
         split.addWidget(left_card)
 
-        # 中栏：消息流 + 输入框
-        self.center_split = QSplitter(Qt.Orientation.Vertical)
-        self.center_split.setChildrenCollapsible(False)
-        self.center_split.setHandleWidth(16)
-        self.center_split.setProperty('prismGutter', True)
+        # 中栏：消息流 + 自适应高度输入框
+        center_host = QWidget()
+        center_l = QVBoxLayout(center_host)
+        center_l.setContentsMargins(0, 0, 0, 0)
+        center_l.setSpacing(10)
+        self.center_split = None
 
         thread_container = QFrame()
         thread_container.setObjectName('agent-thread-card')
@@ -699,10 +700,11 @@ class AgentWorkbenchPanel(QWidget):
         thread_l.addWidget(self.thread_empty, 1)
         thread_l.addWidget(self.scroll, 1)
         self.scroll.hide()
-        self.center_split.addWidget(thread_container)
+        center_l.addWidget(thread_container, 1)
 
         composer_container = QFrame()
         composer_container.setObjectName('agent-composer-card')
+        composer_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.composer_card = composer_container
         composer_l = QVBoxLayout(composer_container)
         composer_l.setContentsMargins(12, 10, 12, 10)
@@ -723,12 +725,14 @@ class AgentWorkbenchPanel(QWidget):
 
         self.input = QPlainTextEdit()
         self.input.setObjectName('agent-composer-input')
-        self.input.setMinimumHeight(120)
+        self.input.setFrameShape(QFrame.Shape.NoFrame)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        from ui.chat_kit.composer import install_autogrow_plain_edit
+        install_autogrow_plain_edit(self.input, min_height=46, max_height=168)
         self.input.installEventFilter(self)
         from ui.text_actions import install_text_actions
         install_text_actions(self.input, language=lambda: self.language)
-        composer_l.addWidget(self.input, 1)
+        composer_l.addWidget(self.input, 0)
 
         send_row = QHBoxLayout()
         send_row.setSpacing(8)
@@ -775,22 +779,15 @@ class AgentWorkbenchPanel(QWidget):
 
         composer_host = QWidget()
         composer_host.setObjectName('agent-composer-host')
+        composer_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         composer_row = QHBoxLayout(composer_host)
         composer_row.setContentsMargins(0, 0, 0, 0)
         composer_row.addStretch(1)
         composer_container.setMaximumWidth(900)
         composer_row.addWidget(composer_container, 100)
         composer_row.addStretch(1)
-        self.center_split.addWidget(composer_host)
-        install_splitter_prefs(
-            self.center_split,
-            defaults=[520, 180],
-            page_id='agent-workbench',
-            tab_id='composer_v2',
-            min_sizes=[200, 120],
-            accessible_name='Agent 对话与输入区分隔',
-        )
-        split.addWidget(self.center_split)
+        center_l.addWidget(composer_host, 0)
+        split.addWidget(center_host)
 
         # 右栏：Context 面板（项目文件树 + 预览，可折叠/拖拽）
         self.context_panel = QFrame()
@@ -883,31 +880,12 @@ class AgentWorkbenchPanel(QWidget):
     def _sync_send_hint_minimum(self):
         self._send_hint_resize_pending = False
         hint = getattr(self, 'send_hint', None)
-        if hint is None:
-            return
-        width = int(hint.width())
-        line_height = max(1, int(hint.fontMetrics().height()))
-        if width > 0 and hint.hasHeightForWidth():
-            wrapped_height = int(hint.heightForWidth(width))
-        else:
-            wrapped_height = line_height * 2
-        # One line of slack covers style spacing and width changes between the
-        # panel resize and Qt's subsequent child-layout pass.
-        hint.setMinimumHeight(max(line_height * 2, wrapped_height + line_height))
-        composer = getattr(self, 'composer_card', None)
-        if composer is not None:
-            layout = composer.layout()
-            margins = layout.contentsMargins()
-            row_height = max(
-                hint.minimumHeight(),
-                self.send_btn.minimumSizeHint().height(),
-                self.add_attachment_btn.minimumSizeHint().height(),
-            )
-            required_height = (
-                margins.top() + self.input.minimumHeight() + layout.spacing()
-                + row_height + margins.bottom()
-            )
-            composer.setMinimumHeight(required_height)
+        if hint is not None:
+            line_height = max(18, int(hint.fontMetrics().height()))
+            hint.setMinimumHeight(line_height)
+        flt = getattr(self.input, '_autogrow_filter', None)
+        if flt is not None:
+            flt.sync()
 
     def _toggle_context_panel(self):
         visible = not self.context_panel.isVisible()

@@ -431,13 +431,27 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                 'indexed': False,
             })
         if dialect != 'dameng':
+            # 按目标 Schema 过滤约束与索引，避免 OceanBase/Oracle 租户级全表扫描卡死
+            owners = sorted({k[0] for k in objects.keys() if k[0]})
+            owner_filter = target_schema or (owners[0] if len(owners) == 1 else '')
             try:
-                cur.execute(
-                    "SELECT cols.owner, cols.table_name, cols.column_name "
-                    "FROM all_constraints cons JOIN all_cons_columns cols "
-                    "ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name "
-                    "WHERE cons.constraint_type = 'P'"
-                )
+                if owner_filter:
+                    cur.execute(
+                        "SELECT cols.owner, cols.table_name, cols.column_name "
+                        "FROM all_constraints cons JOIN all_cons_columns cols "
+                        "ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name "
+                        "WHERE cons.constraint_type = 'P' AND cons.owner = :1",
+                        (owner_filter,),
+                    )
+                else:
+                    excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+                    placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+                    cur.execute(
+                        f"SELECT cols.owner, cols.table_name, cols.column_name "
+                        f"FROM all_constraints cons JOIN all_cons_columns cols "
+                        f"ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name "
+                        f"WHERE cons.constraint_type = 'P' AND cons.owner NOT IN ({placeholders})"
+                    )
                 for row in cur.fetchall() or []:
                     target = objects.get((str(row[0] or ''), str(row[1] or '')))
                     if not target:
@@ -449,21 +463,7 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
                             col['indexed'] = True
             except Exception:
                 pass
-            try:
-                cur.execute(
-                    "SELECT table_owner, table_name, column_name FROM all_ind_columns"
-                )
-                for row in cur.fetchall() or []:
-                    target = objects.get((str(row[0] or ''), str(row[1] or '')))
-                    if not target:
-                        continue
-                    wanted = str(row[2] or '').upper()
-                    for col in target.get('columns') or []:
-                        if str(col.get('name') or '').upper() == wanted:
-                            col['indexed'] = True
-            except Exception:
-                pass
-            _attach_oracle_indexes(cur, objects)
+            _attach_oracle_indexes(cur, objects, owner_filter=owner_filter, user_name=user_name)
         else:
             for target in objects.values():
                 target['indexes'] = []
@@ -476,15 +476,24 @@ def _scan_oracle_like(conn, dialect: str, item: dict | None = None) -> tuple[lis
     return [_clean_object(item) for item in objects.values()], False
 
 
-def _attach_oracle_indexes(cur, objects: dict) -> None:
+def _attach_oracle_indexes(cur, objects: dict, *, owner_filter: str = '', user_name: str = '') -> None:
     for target in objects.values():
         target.setdefault('indexes', [])
         target['index_metadata_status'] = 'ok'
     try:
-        cur.execute(
-            "SELECT table_owner, table_name, index_name, uniqueness, index_type "
-            "FROM all_indexes"
-        )
+        if owner_filter:
+            cur.execute(
+                "SELECT table_owner, table_name, index_name, uniqueness, index_type "
+                "FROM all_indexes WHERE table_owner = :1",
+                (owner_filter,),
+            )
+        else:
+            excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+            placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+            cur.execute(
+                f"SELECT table_owner, table_name, index_name, uniqueness, index_type "
+                f"FROM all_indexes WHERE table_owner NOT IN ({placeholders})"
+            )
         meta = {}
         for row in cur.fetchall() or []:
             key = (str(row[0] or ''), str(row[1] or ''), str(row[2] or ''))
@@ -494,19 +503,37 @@ def _attach_oracle_indexes(cur, objects: dict) -> None:
                 'index_type': str(row[4] or ''),
                 'columns': [],
             }
-        cur.execute(
-            "SELECT table_owner, table_name, index_name, column_name, column_position "
-            "FROM all_ind_columns ORDER BY table_owner, table_name, index_name, column_position"
-        )
+        if owner_filter:
+            cur.execute(
+                "SELECT table_owner, table_name, index_name, column_name, column_position "
+                "FROM all_ind_columns WHERE table_owner = :1 "
+                "ORDER BY table_owner, table_name, index_name, column_position",
+                (owner_filter,),
+            )
+        else:
+            excluded = _ORACLE_SYSTEM_SCHEMAS - ({user_name} if user_name else set())
+            placeholders = ', '.join(f"'{s}'" for s in sorted(excluded))
+            cur.execute(
+                f"SELECT table_owner, table_name, index_name, column_name, column_position "
+                f"FROM all_ind_columns WHERE table_owner NOT IN ({placeholders}) "
+                f"ORDER BY table_owner, table_name, index_name, column_position"
+            )
         for row in cur.fetchall() or []:
-            key = (str(row[0] or ''), str(row[1] or ''), str(row[2] or ''))
+            owner_v, tbl_v, idx_v, col_v = str(row[0] or ''), str(row[1] or ''), str(row[2] or ''), str(row[3] or '')
+            key = (owner_v, tbl_v, idx_v)
             item = meta.setdefault(key, {
-                'name': str(row[2] or ''),
+                'name': idx_v,
                 'unique': False,
                 'index_type': '',
                 'columns': [],
             })
-            item['columns'].append({'name': str(row[3] or ''), 'position': int(row[4] or 0)})
+            item['columns'].append({'name': col_v, 'position': int(row[4] or 0)})
+            target_obj = objects.get((owner_v, tbl_v))
+            if target_obj:
+                wanted = col_v.upper()
+                for col in target_obj.get('columns') or []:
+                    if str(col.get('name') or '').upper() == wanted:
+                        col['indexed'] = True
         grouped = {}
         for (owner, table, _index), item in meta.items():
             grouped.setdefault((owner, table), []).append(item)

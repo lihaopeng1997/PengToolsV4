@@ -99,6 +99,7 @@ _SAFE_CODE = {
     "PROFILE_UNAVAILABLE",
     "DIALECT_UNSUPPORTED",
     "MULTI_STATEMENT",
+    "POLICY_DENIED",
     "QUERY_FAILED",
     "READ_GUARD_NOT_READY",
     "SCOPE_DENIED",
@@ -1168,10 +1169,12 @@ def build_data_center_system_prompt(
         guide = (
             "这条连接是关系库。回答行数、字段或表内容之前必须调用 query_readonly。"
             "没有成功的查询结果时不能结束，也不能空回复。\n"
-            "先 search_objects，只传 keyword，例如 keyword=prptmain。不要传 schema、database、connection。\n"
+            "先 search_objects，只传用户提到的表名关键词（例如 keyword=orders），不要传 schema、database、connection；"
+            "务必使用用户提问里的准确表名，绝不要替换成无关表名。\n"
             "kinds 可以不传；要传就用字符串数组。范围里列出的 schema 只是搜索边界，不要停下来让用户挑选。\n"
-            "搜到对象后用 describe_object，再 query_readonly。SQL 必须使用元数据里的 schema.表名。\n"
-            "sql 参数只放一条 SELECT，不要加 Markdown 代码块。没写 schema 的业务表会被拒绝；"
+            "若用户只是抽样查看表数据或统计行数，查到表后最多调用一次 describe_object 确认时间/主键列，即可立刻调用 query_readonly 执行 SELECT"
+            "（Oracle/OceanBase 用 WHERE ROWNUM <= 20 抽样，统计当天可用 TRUNC(日期列) = TRUNC(SYSDATE)）；不要反复翻页查看全部字段。\n"
+            "SQL 必须使用元数据里的 schema.表名，sql 参数只放一条 SELECT，不要加 Markdown 代码块。没写 schema 的业务表会被拒绝；"
             "连通测试用 SELECT 1 FROM DUAL。工具失败时只转述返回的 message，不要推测连接已断开。\n"
         )
     protocol = (

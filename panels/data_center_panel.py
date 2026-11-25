@@ -550,7 +550,7 @@ class _ConnectionWorkspace(QWidget):
         )
         self.setProperty("connectionId", self.connection_id)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(0)
         self.view_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.view_splitter.setObjectName("data-center-connection-view")
@@ -806,6 +806,7 @@ class DataCenterPanel(QWidget):
         self.tree.directory_more_requested.connect(self._on_tree_more_requested)
         self.tree.directory_node_activated.connect(self._on_tree_node_activated)
         self.tree.directory_node_structure_requested.connect(self._on_tree_node_structure)
+        self.tree.directory_node_select_sql_requested.connect(self._on_tree_node_select_sql)
         self.tree.directory_node_export_requested.connect(self._on_tree_node_export)
         catalog_layout.addWidget(self.tree, 1)
         directory_actions = QFrame(self.catalog_pane)
@@ -844,18 +845,20 @@ class DataCenterPanel(QWidget):
         )
         corner = QWidget(self.workspace_tabs)
         corner_row = QHBoxLayout(corner)
-        corner_row.setContentsMargins(0, 0, 6, 0)
-        corner_row.setSpacing(2)
+        corner_row.setContentsMargins(8, 2, 4, 2)
+        corner_row.setSpacing(6)
         self.guide_btn = make_guide_button(self._start_guided_tour, self.language, corner)
         for button in (self.new_query_btn, self.pop_out_btn, self.agent_btn, self.guide_btn, self.catalog_toggle_btn):
             button.setParent(corner)
             apply_button(button, "ghost", compact=True)
             button.setProperty("cornerAction", True)
-            button.setFixedHeight(24)
+            button.setMinimumWidth(0)
+            button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            button.setFixedHeight(26)
             corner_row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
-        # 收起目录只是开关，不用实底；做成小圆按钮
+        # 收起目录只是开关，做成紧凑方形图标按钮
         self.catalog_toggle_btn.setProperty("cornerPlain", True)
-        self.catalog_toggle_btn.setFixedWidth(30)
+        self.catalog_toggle_btn.setFixedWidth(28)
         self.workspace_tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self._workspace_corner = corner
         self._body_splitter.addWidget(self.catalog_pane)
@@ -1275,6 +1278,42 @@ class DataCenterPanel(QWidget):
             )
         else:
             self.tree.set_directory_status(connection_id, target, node.node_ref, "")
+
+    def _on_tree_node_select_sql(
+        self, connection_id: str, target, node: TreeNode, generation: int
+    ) -> None:
+        """在当前 SQL 编辑器生成对应方言的 SELECT 查询语句（不自动执行）。"""
+        _ = generation
+        owner = self._tree_owners.get(connection_id)
+        if owner is None or owner.is_closing or target != owner.target:
+            return
+        if node.kind not in {"table", "view"}:
+            return
+        workspace = self._open_connection(connection_id)
+        if workspace is None:
+            return
+        host = workspace.host
+        tbl = str(getattr(node, "name", "") or getattr(node, "label", "") or "").strip()
+        schema = str(getattr(node, "schema", "") or getattr(node, "database", "") or "").strip()
+        if not tbl:
+            return
+        provider = str(getattr(target, "provider", "") or "").lower()
+        if provider in {"mysql", "oceanbase_mysql"}:
+            full_name = f"`{schema}`.`{tbl}`" if schema else f"`{tbl}`"
+            sql = f"SELECT *\nFROM {full_name}\nLIMIT 200;"
+        else:
+            full_name = f"{schema}.{tbl}" if schema else tbl
+            sql = f"SELECT *\nFROM {full_name}\nWHERE ROWNUM <= 200;"
+        new_tab = getattr(host, "_new_sql_tab", None)
+        current_tab = getattr(host, "_current_tab", None)
+        tab = current_tab() if callable(current_tab) else None
+        editor = getattr(tab, "editor", None)
+        if editor is not None and editor.toPlainText().strip() and callable(new_tab):
+            tab = new_tab()
+            editor = getattr(tab, "editor", None)
+        if editor is not None:
+            editor.setPlainText(sql)
+            editor.setFocus()
 
     def _on_tree_node_export(
         self, connection_id: str, target, node: TreeNode, generation: int
@@ -2667,6 +2706,11 @@ class DataCenterPanel(QWidget):
         self.agent_btn.setEnabled(self.agent_btn.isVisible() and allowed)
         if self.agent_btn.isVisible():
             self.agent_btn.setChecked(bool(workspace.agent_visible))
+        corner = getattr(self, "_workspace_corner", None)
+        if corner is not None:
+            corner.adjustSize()
+            corner.show()
+            self.workspace_tabs.updateGeometry()
         self.summary_create_btn.setVisible(not selected and not self.catalog.summaries)
         self.summary_create_btn.setEnabled(allowed)
 

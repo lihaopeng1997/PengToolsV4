@@ -10,12 +10,12 @@ import base64
 import mimetypes
 import os
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor
+from PyQt6.QtCore import QRect, QRectF, QSize, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QCursor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QPushButton, QSplitter, QToolTip, QVBoxLayout, QWidget,
+    QMenu, QPushButton, QSplitter, QStyle, QStyledItemDelegate, QToolTip, QVBoxLayout, QWidget,
 )
 
 from config import load_settings, save_settings
@@ -48,6 +48,112 @@ def chat_bubble_max_width(viewport_width: int, *, ratio: float = CHAT_BUBBLE_RAT
     vw = max(1, int(viewport_width or 0))
     capped = min(CHAT_BUBBLE_RATIO_CAP, max(0.45, float(ratio)))
     return max(120, min(int(vw * capped), vw - 24))
+
+
+class _SessionCardDelegate(QStyledItemDelegate):
+    """为模型聊天会话列表绘制清晰的圆角卡片分隔、标题层级与模型/消息数徽章。"""
+
+    def sizeHint(self, option, index):  # noqa: N802
+        return QSize(max(120, option.rect.width()), 58)
+
+    def paint(self, painter: QPainter, option, index):  # noqa: N802
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = option.rect.adjusted(2, 2, -2, -2)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        meta = index.data(Qt.ItemDataRole.UserRole + 1)
+        if isinstance(meta, dict):
+            title = str(meta.get('title') or '未命名会话')
+            model = str(meta.get('model') or '')
+            count = int(meta.get('count') or 0)
+        else:
+            raw = str(index.data(Qt.ItemDataRole.DisplayRole) or '')
+            lines = raw.splitlines()
+            title = lines[0] if lines else '未命名会话'
+            model = lines[1] if len(lines) > 1 else ''
+            count = 0
+
+        if selected:
+            bg = QColor('#EEE9FF')
+            border = QColor('#7C66E8')
+            title_color = QColor('#3E2CA8')
+            sub_bg = QColor('#E2DAFF')
+            sub_fg = QColor('#503DBE')
+        elif hovered:
+            bg = QColor('#F4F1FC')
+            border = QColor('#D6CDF2')
+            title_color = QColor('#262438')
+            sub_bg = QColor('#EAE5F8')
+            sub_fg = QColor('#5F5978')
+        else:
+            bg = QColor('#FAF9FD')
+            border = QColor('#E8E4F2')
+            title_color = QColor('#262438')
+            sub_bg = QColor('#EFEBF8')
+            sub_fg = QColor('#6B6682')
+
+        card_path = QPainterPath()
+        card_path.addRoundedRect(QRectF(rect), 10.0, 10.0)
+        painter.fillPath(card_path, bg)
+        painter.setPen(QPen(border, 1.2 if selected else 1.0))
+        painter.drawPath(card_path)
+
+        if selected:
+            accent = QPainterPath()
+            accent.addRoundedRect(QRectF(rect.left() + 1, rect.top() + 9, 3.0, max(12.0, rect.height() - 18.0)), 1.5, 1.5)
+            painter.fillPath(accent, QColor('#6C58D9'))
+
+        left_pad = 12 if selected else 10
+        right_pad = 10
+        inner_w = max(40, rect.width() - left_pad - right_pad)
+
+        # 右上角消息数胶囊
+        count_text = f'{count} 条' if count > 0 else '新会话'
+        badge_font = QFont(option.font)
+        badge_font.setPixelSize(10)
+        badge_font.setWeight(QFont.Weight.DemiBold)
+        bfm = QFontMetrics(badge_font)
+        badge_w = bfm.horizontalAdvance(count_text) + 12
+        badge_rect = QRect(rect.right() - right_pad - badge_w, rect.top() + 8, badge_w, 18)
+
+        title_font = QFont(option.font)
+        title_font.setPixelSize(12)
+        title_font.setWeight(QFont.Weight.DemiBold if selected else QFont.Weight.Medium)
+        tfm = QFontMetrics(title_font)
+        title_max_w = max(24, inner_w - badge_w - 8)
+        elided_title = tfm.elidedText(title, Qt.TextElideMode.ElideRight, title_max_w)
+        painter.setFont(title_font)
+        painter.setPen(title_color)
+        painter.drawText(
+            QRect(rect.left() + left_pad, rect.top() + 7, title_max_w, 20),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            elided_title,
+        )
+
+        # 绘制消息数胶囊
+        badge_path = QPainterPath()
+        badge_path.addRoundedRect(QRectF(badge_rect), 6.0, 6.0)
+        painter.fillPath(badge_path, sub_bg)
+        painter.setFont(badge_font)
+        painter.setPen(sub_fg)
+        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, count_text)
+
+        # 第二行：模型名胶囊
+        if model:
+            model_font = QFont(option.font)
+            model_font.setPixelSize(11)
+            mfm = QFontMetrics(model_font)
+            elided_model = mfm.elidedText(model, Qt.TextElideMode.ElideRight, inner_w - 4)
+            painter.setFont(model_font)
+            painter.setPen(sub_fg)
+            painter.drawText(
+                QRect(rect.left() + left_pad, rect.top() + 30, inner_w, 18),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                elided_model,
+            )
+        painter.restore()
 
 
 class _ChatWorker(QThread):
@@ -205,6 +311,10 @@ class ModelChatPanel(QWidget):
         left_l.addLayout(search_row)
         self.session_list = QListWidget()
         self.session_list.setObjectName('chat-session-list')
+        self.session_list.setSpacing(4)
+        self.session_list.setUniformItemSizes(True)
+        self.session_list.setMouseTracking(True)
+        self.session_list.setItemDelegate(_SessionCardDelegate(self.session_list))
         self.session_list.currentItemChanged.connect(self._on_session_changed)
         # 重命名/删除收进右键菜单，列表下方不再常驻两个按钮
         self.session_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -227,14 +337,10 @@ class ModelChatPanel(QWidget):
         right = QWidget()
         right_l = QVBoxLayout(right)
         right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(0)
-
-        self.chat_vsplit = QSplitter(Qt.Orientation.Vertical)
-        self.chat_vsplit.setChildrenCollapsible(False)
-        self.chat_vsplit.setHandleWidth(16)
-        self.chat_vsplit.setProperty('prismGutter', True)
+        right_l.setSpacing(10)
 
         top_chat_widget = QWidget()
+        self._top_chat_widget = top_chat_widget
         top_chat_l = QVBoxLayout(top_chat_widget)
         top_chat_l.setContentsMargins(0, 0, 0, 0)
         top_chat_l.setSpacing(4)
@@ -252,7 +358,7 @@ class ModelChatPanel(QWidget):
         self.trim_hint.hide()
         top_chat_l.addWidget(self.trim_hint)
 
-        self.chat_vsplit.addWidget(top_chat_widget)
+        right_l.addWidget(top_chat_widget, 1)
 
         self.composer = Composer()
         self.composer_card = self.composer
@@ -276,18 +382,8 @@ class ModelChatPanel(QWidget):
         self.composer.stop_requested.connect(self._stop)
         self.composer.regenerate_requested.connect(self._regenerate)
         self.input.textChanged.connect(self._sync_send_enabled)
-        self.chat_vsplit.addWidget(self.composer)
-
-        install_splitter_prefs(
-            self.chat_vsplit,
-            defaults=[520, 180],
-            page_id='model-chat',
-            tab_id='composer_v3',
-            min_sizes=[200, 120],
-            accessible_name='模型对话与输入区分隔',
-        )
-
-        right_l.addWidget(self.chat_vsplit, 1)
+        right_l.addWidget(self.composer, 0)
+        self.chat_vsplit = None
         split.addWidget(right)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -510,8 +606,15 @@ class ModelChatPanel(QWidget):
             title = item.get('title') or '未命名会话'
             model = item.get('model') or ''
             count = item.get('message_count', 0)
+            updated = str(item.get('updated_at') or '')
             lw = QListWidgetItem(f"{title} ({count})\n{model}")
             lw.setData(Qt.ItemDataRole.UserRole, item.get('id'))
+            lw.setData(Qt.ItemDataRole.UserRole + 1, {
+                'title': title,
+                'model': model,
+                'count': count,
+                'updated': updated,
+            })
             self.session_list.addItem(lw)
         self.session_list.blockSignals(False)
         self._highlight_active_session()
@@ -587,8 +690,8 @@ class ModelChatPanel(QWidget):
     def apply_layout_mode(self, mode, low_height=False):
         from ui.responsive import set_subtitle_visible
         set_subtitle_visible(self.page_subtitle, low_height)
-        # Preserve the 120px composer; let the scrollable transcript shrink in low windows.
-        self.chat_vsplit.widget(0).setMinimumHeight(100 if low_height else 200)
+        if getattr(self, '_top_chat_widget', None) is not None:
+            self._top_chat_widget.setMinimumHeight(120 if low_height else 200)
 
     def _show_chat(self) -> None:
         self.empty.hide()

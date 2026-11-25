@@ -440,10 +440,11 @@ class ManualQueryHost(QObject):
                 all_button.clicked.disconnect()
             except (TypeError, RuntimeError):
                 pass
+            all_button.clicked.connect(self.fetch_all_pages)
             all_button.setEnabled(False)
             all_button.setToolTip(
-                "手动事务模式暂不支持获取全部" if panel.language == "zh" else
-                "Fetch all is unavailable in manual transaction mode"
+                "拉取剩余结果（受保护上限 10,000 行，随时可点「停止」中断）" if panel.language == "zh" else
+                "Fetch remaining rows (capped at 10,000 rows; stoppable anytime)"
             )
 
     def _install_typed_result_view(self) -> None:
@@ -2048,6 +2049,7 @@ class ManualQueryHost(QObject):
             full_exports = self._active_full_export_states()
             stop_state = full_exports[0] if full_exports else None
         if stop_state is not None:
+            setattr(stop_state, "_fetch_all_active", False)
             stop_state.session.cancel_current()
             stopping_full_export_in_other_tab = (
                 stop_state is not state and stop_state.active_operation == "export_full"
@@ -2082,6 +2084,68 @@ class ManualQueryHost(QObject):
         state.busy = True
         self._set_status(self._message("正在提交事务…", "Committing transaction…") if operation == "commit" else self._message("正在回滚事务…", "Rolling back transaction…"))
         self._watch_future(state, operation, future, state.request_id)
+        self._update_actions(state)
+
+    def fetch_all_pages(self, *_args: Any) -> None:
+        """PL/SQL 风格受限获取全部：分批拉取剩余行，上限 10,000 行防卡死，可随时停止。"""
+        if self._shutdown_gated:
+            return
+        state = self._current_state()
+        if state is None or state.busy or state.last_page is None or not state.last_page.has_more:
+            return
+        if not self._selected_result_can_continue(state):
+            self._set_status(self._message("此结果游标已被后续语句替换；仅保留已加载结果。", "Later statements replaced this cursor; only loaded rows remain."), state=state)
+            return
+        if state.table_model is not None and state.table_model.has_staged_changes:
+            self._set_status(self._message(
+                "请先应用或放弃本地变更，再获取全部。",
+                "Apply or discard local changes before fetching all rows.",
+            ), state=state)
+            return
+        loaded = sum(len(getattr(p, "rows", ()) or ()) for p in (state.pages or ()))
+        if loaded >= 10_000:
+            self._set_status(self._message(
+                f"已加载 {loaded} 行（达到单次获取上限 10,000 行，如需更多请使用导出）。",
+                f"Loaded {loaded} rows (10,000-row safety cap reached; use export for full data).",
+            ), state=state)
+            return
+        setattr(state, "_fetch_all_active", True)
+        self._continue_fetch_all(state)
+
+    def _continue_fetch_all(self, state: _TabState) -> None:
+        if self._shutdown_gated or not getattr(state, "_fetch_all_active", False):
+            setattr(state, "_fetch_all_active", False)
+            return
+        if state.last_page is None or not state.last_page.has_more:
+            setattr(state, "_fetch_all_active", False)
+            return
+        loaded = sum(len(getattr(p, "rows", ()) or ()) for p in (state.pages or ()))
+        if loaded >= 10_000:
+            setattr(state, "_fetch_all_active", False)
+            state.export_status = self._message(
+                f"已达单次获取上限 10,000 行（当前已加载 {loaded} 行；如需完整数据请使用导出）。",
+                f"Reached 10,000-row fetch cap ({loaded} rows loaded; use Export for full dataset).",
+            )
+            self._set_status(state.export_status, state=state)
+            self._update_actions(state)
+            return
+        chunk = min(500, 10_000 - loaded)
+        state.request_id = uuid.uuid4().hex
+        state.busy = True
+        state.export_status = ""
+        self._set_status(self._message(
+            f"正在获取剩余结果…（已加载 {loaded} / 上限 10,000 行，可点「停止」中断）",
+            f"Fetching remaining rows… ({loaded} / 10,000 cap; click Stop to cancel)",
+        ), state=state)
+        expected_query_id = state.history_query_id or state.last_page.query_id
+        self._watch_future(
+            state,
+            "page",
+            state.session.fetch_next_page(chunk),
+            state.request_id,
+            None if state.script is not None else state.history_capture,
+            expected_query_id=expected_query_id,
+        )
         self._update_actions(state)
 
     def fetch_next_page(self, *_args: Any) -> None:
@@ -2302,6 +2366,22 @@ class ManualQueryHost(QObject):
                     self.table_editor.hide()
                     self.result_view.show()
                     self._sync_table_focus_layout(state)
+            if delivery.operation == "page" and getattr(state, "_fetch_all_active", False):
+                total_loaded = sum(len(getattr(p, "rows", ()) or ()) for p in (state.pages or ()))
+                if delivery.result.has_more and total_loaded < 10_000:
+                    QTimer.singleShot(0, lambda s=state: self._continue_fetch_all(s))
+                else:
+                    setattr(state, "_fetch_all_active", False)
+                    if delivery.result.has_more:
+                        state.export_status = self._message(
+                            f"已达单次获取上限 10,000 行（当前已加载 {total_loaded} 行；如需完整数据请导出）。",
+                            f"Reached 10,000-row cap ({total_loaded} rows loaded; use Export for full dataset).",
+                        )
+                    else:
+                        state.export_status = self._message(
+                            f"已获取全部 {total_loaded} 行。",
+                            f"Fetched all {total_loaded} rows.",
+                        )
         elif isinstance(delivery.result, ManualStatementResult):
             state.pages = ()
             state.last_page = None
@@ -2800,16 +2880,18 @@ class ManualQueryHost(QObject):
         if state is None or self._current_tab_is(state):
             self._sync_query_page_size(state)
         page = state.last_page if state is not None else None
+        can_page = bool(
+            page and page.has_more and not state.busy and not self._shutdown_gated
+            and self._selected_result_can_continue(state)
+            and not (state.table_model is not None and state.table_model.has_staged_changes)
+        )
         next_button = getattr(self.panel, "next_btn", None)
         if next_button is not None:
-            next_button.setEnabled(bool(
-                page and page.has_more and not state.busy and not self._shutdown_gated
-                and self._selected_result_can_continue(state)
-                and not (state.table_model is not None and state.table_model.has_staged_changes)
-            ))
+            next_button.setEnabled(can_page)
         all_button = getattr(self.panel, "all_btn", None)
         if all_button is not None:
-            all_button.setEnabled(False)
+            loaded = sum(len(getattr(p, "rows", ()) or ()) for p in (state.pages or ())) if state is not None else 0
+            all_button.setEnabled(bool(can_page and loaded < 10_000))
         if state is not None and state.table_mode_active and state.table_model is not None and self._current_tab_is(state):
             self.table_editor.set_operation_state(
                 has_more=bool(page and page.has_more),
@@ -2861,17 +2943,37 @@ class ManualQueryHost(QObject):
             and not self._shutdown_gated
             and current.session.state in {ManualSessionState.DIRTY, ManualSessionState.UNKNOWN}
         ))
-        self.stop_btn.setEnabled(bool(
+        stop_active = bool(
             (current is not None and current.busy)
             or self._export_jobs
             or self._active_full_export_states()
-        ))
+        )
+        self.stop_btn.setEnabled(stop_active)
+        if bool(self.stop_btn.property("danger")) != stop_active:
+            self.stop_btn.setProperty("danger", stop_active)
+            self.stop_btn.setProperty("actionRole", "danger" if stop_active else "secondary")
+            self.stop_btn.setObjectName("danger-btn" if stop_active else "btn-secondary")
+            st = self.stop_btn.style()
+            if st is not None:
+                st.unpolish(self.stop_btn)
+                st.polish(self.stop_btn)
         # V1.1 起三钮始终可见；不可用时灰显并靠 tooltip 说明时机，避免功能被藏起来。
         self.commit_btn.setVisible(True)
         self.rollback_btn.setVisible(True)
         self.stop_btn.setVisible(True)
         run_button = getattr(self.panel, "run_btn", None)
         if run_button is not None:
+            is_busy = bool(current is not None and current.busy)
+            zh = getattr(self.panel, "language", "zh") == "zh"
+            want_text = ("执行中…" if zh else "Running…") if is_busy else ("执行 SQL" if zh else "Run SQL")
+            if run_button.text() != want_text:
+                run_button.setText(want_text)
+            if bool(run_button.property("running")) != is_busy:
+                run_button.setProperty("running", is_busy)
+                st = run_button.style()
+                if st is not None:
+                    st.unpolish(run_button)
+                    st.polish(run_button)
             tab = self.panel._current_tab()
             if tab is not None and getattr(tab, "_history_target_locked", False):
                 run_button.setEnabled(

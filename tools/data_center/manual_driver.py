@@ -256,6 +256,7 @@ class ManualRelationalDriver:
         self._validate_scope()
         self._lob_cancelled.clear()
         cursor = self._connection.cursor()
+        self._active_cursor = cursor
         try:
             cursor.execute(sql) if parameters is None else cursor.execute(sql, parameters)
         except Exception:
@@ -264,13 +265,30 @@ class ManualRelationalDriver:
             except Exception:
                 pass
             raise
+        finally:
+            if getattr(self, "_active_cursor", None) is cursor:
+                self._active_cursor = None
         if self._provider in {"oracle", "oceanbase_oracle"}:
             return _DetachedOracleCursor(cursor, self)
         return cursor
 
     def request_interrupt(self) -> None:
-        """Only signal cooperative LOB cancellation; no foreign-thread DB call."""
+        """Signal cooperative LOB cancel and best-effort native driver cancel."""
         self._lob_cancelled.set()
+        conn = getattr(self, "_connection", None)
+        cur = getattr(self, "_active_cursor", None)
+        # Oracle oracledb 支持线程安全 connection.cancel()；ODBC/OceanBase 支持 cursor.cancel()
+        if self._provider == "oracle" and conn is not None and callable(getattr(conn, "cancel", None)):
+            try:
+                conn.cancel()
+                return
+            except Exception:
+                pass
+        if cur is not None and callable(getattr(cur, "cancel", None)):
+            try:
+                cur.cancel()
+            except Exception:
+                pass
 
     def validate_block(self, sql: str, provider: str) -> None:
         self._require_owner_thread()

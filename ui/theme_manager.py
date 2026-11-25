@@ -186,6 +186,12 @@ THEMES: dict[str, dict[str, str]] = {
         'ACCENT_CYAN': '#0EA5E9',
         'ACCENT_ROSE': '#C45371',
         'ACCENT_EMERALD': '#247F75',
+        # 需求进度阶段语义色（供 StageBar 与分组标题直接消费，避免缺键回退纯黑 #000000）
+        'STAGE_ANALYSIS': '#2563EB',
+        'STAGE_TESTING': '#D97706',
+        'STAGE_RELEASE': '#0891B2',
+        'STAGE_ONLINE': '#059669',
+        'STAGE_PAUSED': '#DC2626',
     }, {
         'CODE_BG': '#F8F7FD',
         'ELEVATED_SURFACE': '#FFFFFF',

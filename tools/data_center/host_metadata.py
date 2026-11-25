@@ -31,8 +31,8 @@ from .contracts import RunContext, ToolCall, ToolResult
 from .readonly_driver_adapters import canonical_provider
 
 
-MAX_METADATA_PAGE = 20
-MAX_METADATA_ROWS = 100
+MAX_METADATA_PAGE = 120
+MAX_METADATA_ROWS = 200
 MAX_DIRECTORY_PAGE = 50
 MAX_CURSOR_ENTRIES = 128
 MAX_OBJECT_ENTRIES = 512

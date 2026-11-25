@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import math
+import re
+
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QTextDocument, QTextOption
 from PyQt6.QtWidgets import (
@@ -10,8 +13,27 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-_CODE_LIMIT = 320
-_HEADER = 32
+_CODE_LIMIT = 420
+_HEADER = 36
+
+# 保护裸露 SQL 中的 COUNT(*) / SUM(*) / SELECT * FROM 等星号，避免被 CommonMark 误解析为斜体
+_INLINE_CODE_RE = re.compile(r'(`+[^`]*`+)')
+_SQL_PAREN_STAR_RE = re.compile(r'\(\*\)')
+_SQL_SPACE_STAR_RE = re.compile(r'(?<=[\s,])\*(?=[\s,;])')
+
+
+def _protect_sql_stars(text: str) -> str:
+    raw = str(text or '')
+    if '*' not in raw:
+        return raw
+    parts = _INLINE_CODE_RE.split(raw)
+    for i in range(0, len(parts), 2):
+        seg = parts[i]
+        if '*' in seg:
+            seg = _SQL_PAREN_STAR_RE.sub(r'(\\*)', seg)
+            seg = _SQL_SPACE_STAR_RE.sub(r'\\*', seg)
+            parts[i] = seg
+    return ''.join(parts)
 
 
 class OfflineDocument(QTextDocument):
@@ -33,19 +55,23 @@ class _FittingBrowser(QTextBrowser):
         option = QTextOption()
         option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(option)
-        self.document().setDocumentMargin(0)
+        self.document().setDocumentMargin(2)
         self.setMinimumWidth(0)
         font = QFont()
+        font.setFamilies(['Microsoft YaHei UI', 'Segoe UI', 'sans-serif'])
         font.setPixelSize(14)
         self.setFont(font)
         self.document().setDefaultFont(font)
+        self._fitted_height = 26
+        self._last_fit_width = 0
 
     def set_markdown(self, text: str, width: int) -> None:
         features = (
             QTextDocument.MarkdownFeature.MarkdownDialectGitHub
             | QTextDocument.MarkdownFeature.MarkdownNoHTML
         )
-        self.document().setMarkdown(str(text or ''), features)
+        safe = _protect_sql_stars(text)
+        self.document().setMarkdown(safe, features)
         option = self.document().defaultTextOption()
         option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(option)
@@ -60,16 +86,31 @@ class _FittingBrowser(QTextBrowser):
         self._fit(width)
 
     def _fit(self, width: int) -> None:
-        inner = max(40, int(width) - 8)
+        cm = self.contentsMargins()
+        frame = self.frameWidth()
+        vp_w = self.viewport().width() if self.isVisible() and self.viewport().width() > 40 else 0
+        avail = vp_w if vp_w > 40 else max(40, int(width) - cm.left() - cm.right() - frame * 2 - 4)
+        inner = max(40, avail)
+        self._last_fit_width = inner
         self.document().setTextWidth(inner)
-        height = int(self.document().size().height()) + 4
-        self.setFixedHeight(max(20, height))
+        doc_h = math.ceil(self.document().size().height())
+        line_h = max(22, self.fontMetrics().lineSpacing())
+        height = max(line_h + 8, doc_h + cm.top() + cm.bottom() + frame * 2 + 12)
+        self._fitted_height = height
+        self.setFixedHeight(height)
+        self.updateGeometry()
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        vp_w = self.viewport().width()
+        if vp_w > 40 and abs(vp_w - self._last_fit_width) >= 4:
+            self._fit(vp_w)
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(40, self.height() or 20)
+        return QSize(40, self._fitted_height)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(80, self.height() or 20)
+        return QSize(80, self._fitted_height)
 
 
 class _CodeEditor(QPlainTextEdit):
@@ -87,12 +128,13 @@ class _CodeEditor(QPlainTextEdit):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setFrameShape(QPlainTextEdit.Shape.NoFrame)
+        self._fitted_height = 44
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(40, 24)
+        return QSize(40, self._fitted_height)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(80, max(24, self.height()))
+        return QSize(80, self._fitted_height)
 
 
 class CodeBlock(QFrame):
@@ -103,11 +145,13 @@ class CodeBlock(QFrame):
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._code = str(code or '').replace('\r\n', '\n')
+        self._fitted_total_h = 84
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        bar = QHBoxLayout()
-        bar.setContentsMargins(8, 4, 8, 4)
+        self._header_bar = QWidget(self)
+        bar = QHBoxLayout(self._header_bar)
+        bar.setContentsMargins(10, 5, 8, 5)
         self.language = QLabel((language or 'text').strip() or 'text')
         self.language.setObjectName('chat-code-lang')
         copy = QPushButton('复制')
@@ -115,7 +159,7 @@ class CodeBlock(QFrame):
         copy.clicked.connect(self._copy)
         bar.addWidget(self.language, 1)
         bar.addWidget(copy, 0)
-        layout.addLayout(bar)
+        layout.addWidget(self._header_bar)
         self.editor = _CodeEditor()
         self.editor.setPlainText(self._code)
         layout.addWidget(self.editor)
@@ -143,24 +187,34 @@ class CodeBlock(QFrame):
 
     def _fit_height(self) -> None:
         metrics = self.editor.fontMetrics()
-        lines = max(1, self._code.count('\n') + (0 if self._code.endswith('\n') or not self._code else 1))
-        if self._code.endswith('\n'):
-            lines = max(1, self._code.count('\n'))
-        wanted = lines * max(16, metrics.lineSpacing()) + 8
-        cap = _CODE_LIMIT - _HEADER
-        height = min(cap, max(28, wanted))
+        trimmed = self._code.rstrip('\n')
+        lines = max(1, trimmed.count('\n') + 1) if trimmed else 1
+        line_h = max(18, metrics.lineSpacing())
+        header_h = max(_HEADER, self._header_bar.sizeHint().height())
+        # 12px 上下内边距 + 16px 横向滚动条预留 + 10px 缓冲，杜绝单行代码块被压成一条滚动条或出现多余竖向滚动条
+        wanted = lines * line_h + 38
+        cap = _CODE_LIMIT - header_h - 4
+        height = min(cap, max(56, wanted))
+        self.editor.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if wanted > cap else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.editor._fitted_height = height
         self.editor.setFixedHeight(height)
-        self.setFixedHeight(min(_CODE_LIMIT, height + _HEADER))
+        self.editor.updateGeometry()
+        total = min(_CODE_LIMIT, height + header_h + 4)
+        self._fitted_total_h = total
+        self.setFixedHeight(total)
+        self.updateGeometry()
 
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)
         self.editor.viewport().update()
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(40, 28)
+        return QSize(40, self._fitted_total_h)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(80, self.height() or 48)
+        return QSize(80, self._fitted_total_h)
 
 
 class MarkdownBody(QWidget):

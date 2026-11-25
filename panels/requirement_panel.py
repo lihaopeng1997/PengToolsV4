@@ -1835,9 +1835,8 @@ class RequirementPanel(QWidget):
         card.addWidget(self.stage_caption)
         self.stage_caption.hide()  # 步骤条已显示阶段名与细状态
 
-        # 快捷动作：日常最常用的四个，复用既有处理函数
-        quick = QHBoxLayout(); quick.setSpacing(6)
-        self.quick_actions_layout = quick
+        # 快捷动作并入顶栏 head，消除阶段条下方与文件库工具栏的双排重复按钮
+        self.quick_actions_layout = head
         self.open_dev_btn = QPushButton('开发目录')
         self.open_dev_btn.setToolTip('打开本地开发工程目录')
         self.open_dev_btn.clicked.connect(lambda: self._open_dev_project_folder(self._current))
@@ -1862,9 +1861,6 @@ class RequirementPanel(QWidget):
             pass
         for button in self.quick_buttons.values():
             size_compact_button(button)
-        # 详情头仅保留「开发目录」「写日报」「更多 ▾」，避免与下方文件库工具条的「更新」「提交」重复
-        quick.addWidget(self.open_dev_btn)
-        quick.addWidget(self.daily_btn)
         self.quick_update_btn.setParent(self.detail_card)
         self.quick_update_btn.hide()
         self.quick_commit_btn.setParent(self.detail_card)
@@ -1883,9 +1879,15 @@ class RequirementPanel(QWidget):
         self._action_rename = self.detail_more_menu.addAction('修改标题', self._rename_requirement_title)
         self._action_delete = self.detail_more_menu.addAction('删除需求', self._delete_requirement)
         self.detail_more_btn.setMenu(self.detail_more_menu)
-        quick.addWidget(self.detail_more_btn)
-        quick.addStretch(1)
-        card.addLayout(quick)
+        # 插入到 status_combo 之前：eyebrow | 开发目录 | 写日报 | 状态 | 编辑 | 更多 ▾
+        status_idx = head.indexOf(self.status_combo)
+        if status_idx >= 0:
+            head.insertWidget(status_idx, self.open_dev_btn)
+            head.insertWidget(status_idx + 1, self.daily_btn)
+        else:
+            head.addWidget(self.open_dev_btn)
+            head.addWidget(self.daily_btn)
+        head.addWidget(self.detail_more_btn)
 
         # 兼容旧引用
         self._detail_fields = {}
@@ -2005,17 +2007,6 @@ class RequirementPanel(QWidget):
         self.file_more_menu.aboutToShow.connect(self._sync_file_more_menu)
         self.file_more_btn.setMenu(self.file_more_menu)
         file_head.addWidget(self.file_more_btn)
-        file_head.addStretch(1)
-        self.svn_meta = QLabel()
-        self.svn_meta.setObjectName('svn-workspace-meta')
-        self.svn_meta.setWordWrap(False)
-        self.svn_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.svn_meta.hide()
-        file_head.addWidget(self.svn_meta)
-        file_layout.addLayout(file_head)
-
-        file_tools = QHBoxLayout()
-        file_tools.setSpacing(8)
         self.file_search_edit = QLineEdit()
         self.file_search_edit.setProperty('editableField', True)
         self.file_search_edit.setClearButtonEnabled(True)
@@ -2026,11 +2017,17 @@ class RequirementPanel(QWidget):
         self._file_search_timer.setInterval(150)
         self._file_search_timer.timeout.connect(self._filter_file_tree_local)
         self.file_search_edit.textChanged.connect(lambda *_: self._file_search_timer.start())
-        file_tools.addWidget(self.file_search_edit, 1)
+        file_head.addWidget(self.file_search_edit, 1)
         self.file_count_label = QLabel('')
         self.file_count_label.setObjectName('small-label')
-        file_tools.addWidget(self.file_count_label)
-        file_layout.addLayout(file_tools)
+        file_head.addWidget(self.file_count_label)
+        self.svn_meta = QLabel()
+        self.svn_meta.setObjectName('svn-workspace-meta')
+        self.svn_meta.setWordWrap(False)
+        self.svn_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.svn_meta.hide()
+        file_head.addWidget(self.svn_meta)
+        file_layout.addLayout(file_head)
 
         self.file_tree = QTreeWidget(); self.file_tree.setObjectName('requirement-file-tree')
         self.file_tree.setHeaderLabels(('名称', '类型', '修改时间', '大小', '路径'))
