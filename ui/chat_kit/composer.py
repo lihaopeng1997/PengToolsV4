@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QEvent, QObject, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPoint, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QTextOption
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QPushButton, QSizePolicy,
-    QToolButton, QVBoxLayout,
+    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QPlainTextEdit,
+    QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
 )
 
 
@@ -85,6 +85,88 @@ def install_autogrow_plain_edit(
     return flt
 
 
+class ModelPillButton(QPushButton):
+    """胶囊式模型选择器（点击向上弹出模型菜单，选定后在输入框左下方实时展示当前模型）。"""
+
+    def __init__(self, model_combo: QComboBox, parent=None, *, extra_menu_builder=None):
+        super().__init__(parent)
+        self._combo = model_combo
+        self._extra_builder = extra_menu_builder
+        self._suffix_badge = ''
+        self.setObjectName('chat-model-pill')
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(28)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        model_combo.hide()
+        model_combo.installEventFilter(self)
+        model_combo.currentIndexChanged.connect(lambda *_: self.sync())
+        m = model_combo.model()
+        if m is not None:
+            m.rowsInserted.connect(lambda *_: self.sync())
+            m.rowsRemoved.connect(lambda *_: self.sync())
+            m.modelReset.connect(lambda *_: self.sync())
+            m.dataChanged.connect(lambda *_: self.sync())
+        self.clicked.connect(self._open_popup)
+        self.sync()
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self._combo and event.type() == QEvent.Type.EnabledChange:
+            self.setEnabled(self._combo.isEnabled())
+        return super().eventFilter(watched, event)
+
+    def set_suffix_badge(self, badge: str) -> None:
+        self._suffix_badge = str(badge or '').strip()
+        self.sync()
+
+    def sync(self) -> None:
+        raw = (self._combo.currentText() or '').strip()
+        if not raw:
+            label = (self._combo.placeholderText() or '选择模型').strip()
+        else:
+            # 优先展示配置名或精简模型名，避免过长撑宽
+            parts = [p.strip() for p in raw.split('·') if p.strip()]
+            label = parts[0] if parts else raw
+            if len(label) > 24:
+                label = label[:23] + '…'
+        if self._suffix_badge:
+            label = f'{label} · {self._suffix_badge}'
+        self.setText(f'{label}  ▾')
+        self.setToolTip(raw or label)
+        self.setEnabled(self._combo.isEnabled())
+
+    def setEnabled(self, enabled: bool) -> None:  # noqa: N802
+        super().setEnabled(bool(enabled))
+
+    def _open_popup(self) -> None:
+        menu = QMenu(self)
+        menu.setObjectName('chat-model-popup')
+        header = menu.addAction('Model')
+        header.setEnabled(False)
+        count = self._combo.count()
+        cur = self._combo.currentIndex()
+        if count == 0:
+            empty_act = menu.addAction('暂无已启用模型（请前往设置添加）')
+            empty_act.setEnabled(False)
+        else:
+            for idx in range(count):
+                text = self._combo.itemText(idx)
+                prefix = '✓  ' if idx == cur else '    '
+                act = menu.addAction(f'{prefix}{text}')
+                act.triggered.connect(lambda _checked=False, i=idx: self._combo.setCurrentIndex(i))
+        if callable(self._extra_builder):
+            self._extra_builder(menu)
+        menu.ensurePolished()
+        hint = menu.sizeHint()
+        global_top_left = self.mapToGlobal(QPoint(0, 0))
+        target_y = global_top_left.y() - hint.height() - 6
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            if target_y < avail.top() + 8:
+                target_y = global_top_left.y() + self.height() + 4
+        menu.exec(QPoint(global_top_left.x(), target_y))
+
+
 class Composer(QFrame):
     send_requested = pyqtSignal()
     stop_requested = pyqtSignal()
@@ -123,10 +205,12 @@ class Composer(QFrame):
         )
         self.input.installEventFilter(self)
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
         self.add_attachment_btn = QToolButton()
         self.add_attachment_btn.setObjectName('chat-attach-btn')
         self.add_attachment_btn.setText('+')
+        self.add_attachment_btn.setFixedSize(28, 28)
         self.add_attachment_btn.setToolTip('添加附件（文件/图片）')
         self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu = QMenu(self.add_attachment_btn)
@@ -141,9 +225,11 @@ class Composer(QFrame):
         self.send_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.retry_btn = QPushButton('重新生成')
         self.retry_btn.setObjectName('chat-retry-btn')
+        self.retry_btn.setFixedHeight(28)
         self.retry_btn.clicked.connect(self.regenerate_requested.emit)
         self.send_btn = QPushButton('发送')
         self.send_btn.setObjectName('chat-send-btn')
+        self.send_btn.setFixedHeight(28)
         self.send_btn.setProperty('danger', False)
         self.send_btn.setProperty('running', False)
         self.send_btn.setProperty('actionRole', 'primary')
@@ -167,16 +253,16 @@ class Composer(QFrame):
         else:
             self._footer_row = row
             layout.addWidget(self.input, 1)
-            row.addWidget(self.add_attachment_btn, 0)
-            row.addWidget(self.send_hint, 1)
-            row.addWidget(self.retry_btn, 0)
-            row.addWidget(self.send_btn, 0)
+            row.addWidget(self.add_attachment_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(self.send_hint, 1, Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(self.retry_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(self.send_btn, 0, Qt.AlignmentFlag.AlignVCenter)
             layout.addLayout(row)
         self.set_language('zh')
 
     def insert_footer_widget(self, index: int, widget, stretch: int = 0) -> None:
         if self._footer_row is not None and widget is not None:
-            self._footer_row.insertWidget(index, widget, stretch)
+            self._footer_row.insertWidget(index, widget, stretch, Qt.AlignmentFlag.AlignVCenter)
 
     def eventFilter(self, watched, event):  # noqa: N802
         if watched is self.input:

@@ -151,12 +151,22 @@ def _alias_table(objects, sql, code, position, qualifier, dialect):
 
 
 def _quote(name, dialect):
-    # Metadata names are always quoted, including vendor-reserved words.
-    # Legacy snapshots can omit the provider/mode; preserve their bare names.
-    if dialect not in {"mysql", "oracle", "oceanbase_mysql", "oceanbase_oracle"} and _BARE.fullmatch(name):
-        return name
+    # Keep normal bare SQL identifiers clean (e.g. PRPCMAIN instead of "PRPCMAIN"),
+    # and quote only when the identifier contains special characters, spaces,
+    # reserved words, or case-sensitive lowercase letters in Oracle dialects.
+    text = str(name or "")
+    if not text:
+        return text
+    if _BARE.fullmatch(text) and text.upper() not in _RESERVED:
+        if dialect in {"oracle", "oceanbase_oracle"}:
+            if text == text.upper():
+                return text
+        else:
+            return text
+    if dialect not in {"mysql", "oracle", "oceanbase_mysql", "oceanbase_oracle"} and _BARE.fullmatch(text):
+        return text
     quote = "`" if dialect.endswith("mysql") else '"'
-    return quote + name.replace(quote, quote * 2) + quote
+    return quote + text.replace(quote, quote * 2) + quote
 
 
 def _active_tables(objects, sql, code, position, dialect):
@@ -192,13 +202,31 @@ def _active_tables(objects, sql, code, position, dialect):
     return found
 
 
-def completion_candidates(snapshot, sql, position, prefix, keywords):
-    dialect = str(snapshot.get("dialect") or "generic")
+_TABLE_CLAUSE_RE = re.compile(
+    r"(?is)\b(?:FROM|JOIN|UPDATE|INTO|TABLE)\s+(?:[^\s,;()]+\s*,\s*)*$"
+)
+
+
+def _prefers_tables(code: str, token_start: int) -> bool:
+    before = code[max(0, token_start - 256):token_start]
+    stmt_start = before.rfind(";")
+    if stmt_start >= 0:
+        before = before[stmt_start + 1:]
+    return _TABLE_CLAUSE_RE.search(before) is not None
+
+
+def completion_items(snapshot, sql, position, prefix, keywords):
+    """Return structured completion items: list of (text, kind, detail)."""
+    dialect = str((snapshot or {}).get("dialect") or "generic")
     if len(sql) > 256 * 1024:
-        return [kw for kw in keywords if kw.casefold().startswith(prefix.casefold())]
-    objects = [obj for obj in snapshot.get("objects") or () if isinstance(obj, dict) and isinstance(obj.get("name"), str)]
-    # An unfinished quoted completion token is valid while editing. Mask only
-    # that token before lexing; all comments/literals elsewhere stay masked.
+        return [
+            (kw, "func" if kw.endswith(")") else "keyword", "关键字")
+            for kw in keywords if kw.casefold().startswith(prefix.casefold())
+        ]
+    objects = [
+        obj for obj in (snapshot or {}).get("objects") or ()
+        if isinstance(obj, dict) and isinstance(obj.get("name"), str)
+    ]
     marker = "x" * len(prefix)
     lex_text = sql[:position - len(prefix)] + marker + sql[position:]
     try:
@@ -206,8 +234,7 @@ def completion_candidates(snapshot, sql, position, prefix, keywords):
     except SqlScriptError:
         return []
     if prefix and code[position - len(prefix):position] != marker:
-        return []  # The caret is inside a comment or string literal.
-    # Split at dots outside quoted identifiers (names can contain a dot).
+        return []
     token_code = re.sub(r'"(?:[^"]|"")*"|`(?:[^`]|``)*`', lambda match: " " * len(match.group()), prefix)
     split = token_code.rfind(".")
     if split >= 0:
@@ -221,29 +248,78 @@ def completion_candidates(snapshot, sql, position, prefix, keywords):
             if aliased or len(parts) != 1:
                 return []
             owner, quoted = parts[0]
-            return [qualifier + "." + _quote(obj['name'], dialect) for obj in objects
-                    if _matches(owner, quoted, str(obj.get('owner', '')), dialect)
-                    and obj['name'].casefold().startswith(partial.casefold())][:2000]
-        return [f"{qualifier}.{_quote(col['name'], dialect)}" for col in table.get("columns") or ()
-                if isinstance(col, dict) and isinstance(col.get("name"), str) and col['name'].casefold().startswith(partial.casefold())][:1024]
+            out = []
+            for obj in objects:
+                if _matches(owner, quoted, str(obj.get("owner", "")), dialect) and obj["name"].casefold().startswith(partial.casefold()):
+                    detail = str(obj.get("comment") or obj.get("owner") or "")
+                    kind = "view" if str(obj.get("kind") or "").lower() == "view" else "table"
+                    out.append((qualifier + "." + _quote(obj["name"], dialect), kind, detail))
+            return out[:2000]
+        out = []
+        for col in table.get("columns") or ():
+            if isinstance(col, dict) and isinstance(col.get("name"), str) and col["name"].casefold().startswith(partial.casefold()):
+                detail = str(col.get("type") or col.get("comment") or table.get("name") or "")
+                out.append((f"{qualifier}.{_quote(col['name'], dialect)}", "column", detail))
+        return out[:1024]
+
     low = prefix.lstrip('"`').casefold()
-    hits = [kw for kw in keywords if kw.casefold().startswith(low)]
-    # 优先补全当前语句已引用表的无前缀字段（类似 PL/SQL / DBX 体验）
+    prefer_tables = _prefers_tables(code, position - len(prefix))
+
+    kw_items = [
+        (kw, "func" if "(" in kw else "keyword", "函数" if "(" in kw else "关键字")
+        for kw in keywords if kw.casefold().startswith(low)
+    ]
+
+    col_items = []
     for tbl in _active_tables(objects, sql, code, position, dialect):
+        tname = str(tbl.get("name") or "")
         for col in tbl.get("columns") or ():
             if not isinstance(col, dict) or not isinstance(col.get("name"), str):
                 continue
             cname = col["name"]
             if not low or cname.casefold().startswith(low):
-                hits.append(_quote(cname, dialect))
+                detail = " · ".join(p for p in (tname, str(col.get("type") or ""), str(col.get("comment") or "")) if p)
+                col_items.append((_quote(cname, dialect), "column", detail))
+
+    prefix_tables = []
+    fuzzy_tables = []
     for obj in objects:
         name = obj["name"]
+        owner = str(obj.get("owner") or "")
+        comment = str(obj.get("comment") or "")
+        kind = "view" if str(obj.get("kind") or "").lower() == "view" else "table"
+        detail = " · ".join(p for p in (owner, comment) if p)
         compact, needle = name.casefold().replace("_", ""), low.replace("_", "")
-        if compact.startswith(needle) or len(needle) >= 3 and _subsequence(needle, compact):
-            hits.append(_quote(name, dialect))
-            if obj.get("owner"):
-                hits.append(_quote(obj["owner"], dialect) + "." + _quote(name, dialect))
-    return list(dict.fromkeys(hits))[:2000]
+        if not needle or compact.startswith(needle):
+            prefix_tables.append((_quote(name, dialect), kind, detail))
+            if owner:
+                prefix_tables.append((_quote(owner, dialect) + "." + _quote(name, dialect), kind, comment or owner))
+        elif len(needle) >= 2 and (needle in compact or _subsequence(needle, compact)):
+            fuzzy_tables.append((_quote(name, dialect), kind, detail))
+            if owner:
+                fuzzy_tables.append((_quote(owner, dialect) + "." + _quote(name, dialect), kind, comment or owner))
+
+    table_items = prefix_tables + fuzzy_tables
+    if prefer_tables:
+        ordered = table_items + kw_items + col_items
+    else:
+        ordered = col_items + kw_items + table_items
+
+    seen = set()
+    unique = []
+    for text, kind, detail in ordered:
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((text, kind, detail))
+        if len(unique) >= 2000:
+            break
+    return unique
+
+
+def completion_candidates(snapshot, sql, position, prefix, keywords):
+    return [item[0] for item in completion_items(snapshot, sql, position, prefix, keywords)]
 
 
 def _subsequence(needle, value):

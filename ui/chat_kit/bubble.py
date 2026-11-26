@@ -279,8 +279,10 @@ class MessageBubble(QWidget):
     resized = pyqtSignal()
     retry_requested = pyqtSignal()
     copy_error_requested = pyqtSignal(str)
+    apply_sql_requested = pyqtSignal(str)
+    run_sql_requested = pyqtSignal(str)
 
-    def __init__(self, message: dict, parent=None):
+    def __init__(self, message: dict, parent=None, *, sql_actions: bool = False):
         super().__init__(parent)
         self.setMinimumWidth(0)
         self.message = dict(message or {})
@@ -314,16 +316,24 @@ class MessageBubble(QWidget):
         self.card.setObjectName('chat-user-bubble' if user else 'chat-assistant-bubble')
         self.card.setProperty('failed', False)
         self.card.setSizePolicy(
-            QSizePolicy.Policy.Maximum if user else QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Maximum,
             QSizePolicy.Policy.Preferred,
         )
         box = QVBoxLayout(self.card)
-        box.setContentsMargins(12, 8, 12, 8)
-        box.setSpacing(8)
+        box.setContentsMargins(12, 8, 12, 6 if not user else 8)
+        box.setSpacing(4 if not user else 6)
         self.thinking = ThinkingBlock()
-        self.tools = QVBoxLayout()
-        self.tools.setSpacing(4)
-        self.markdown = MarkdownBody()
+        self._tools_host = QWidget()
+        self._tools_host.setObjectName('chat-tools-host')
+        self.tools = QVBoxLayout(self._tools_host)
+        self.tools.setContentsMargins(0, 0, 0, 0)
+        self.tools.setSpacing(3)
+        self._tools_host.hide()
+        self.markdown = MarkdownBody(sql_actions=sql_actions)
+        self.markdown.content_changed.connect(self._sync_assistant_width)
+        if sql_actions:
+            self.markdown.apply_sql_requested.connect(self.apply_sql_requested.emit)
+            self.markdown.run_sql_requested.connect(self.run_sql_requested.emit)
         self.phase = PhaseLine()
         self.stopped = QLabel('已停止')
         self.stopped.setObjectName('chat-stopped')
@@ -348,19 +358,23 @@ class MessageBubble(QWidget):
             self.phase.hide()
         else:
             box.addWidget(self.thinking)
-            box.addLayout(self.tools)
+            box.addWidget(self._tools_host)
             box.addWidget(self.markdown)
             box.addWidget(self.phase)
             box.addWidget(self.stopped)
             box.addWidget(self.error_card)
-            actions = QHBoxLayout()
+            self._actions_host = QWidget()
+            actions = QHBoxLayout(self._actions_host)
+            actions.setContentsMargins(0, 0, 0, 0)
+            actions.setSpacing(4)
             actions.addStretch(1)
             actions.addWidget(self.copy_btn, 0)
-            box.addLayout(actions)
+            box.addWidget(self._actions_host)
             self.markdown.set_markdown(str(self.message.get('content') or ''))
             status = str(self.message.get('status') or 'complete')
             if status == 'pending':
                 self.copy_btn.hide()
+                self._actions_host.hide()
             elif status == 'stopped':
                 self.stopped.show()
             elif status == 'failed':
@@ -369,29 +383,79 @@ class MessageBubble(QWidget):
             row.addStretch(1)
             row.addWidget(self.card, 0)
         else:
-            row.addWidget(self.card, 1)
+            row.addWidget(self.card, 0)
+            row.addStretch(1)
         root.addLayout(row)
 
+    def _sync_user_width(self) -> None:
+        if self.role != 'user':
+            return
+        eff_vp = max(320, int(self._viewport))
+        max_card = max(200, min(int(eff_vp * 0.76), eff_vp - 24))
+        max_text_w = max(140, max_card - 28)
+        raw = self.user_text.text() or ''
+        fm = self.user_text.fontMetrics()
+        longest = max((fm.horizontalAdvance(line) for line in raw.splitlines()), default=0) + 8
+        if longest <= max_text_w and '\n' not in raw:
+            self.user_text.setWordWrap(False)
+            self.user_text.setMinimumWidth(0)
+            self.user_text.setMaximumWidth(max_text_w)
+            self.card.setMinimumWidth(0)
+            self.card.setMaximumWidth(max_card)
+        elif longest <= max_text_w:
+            self.user_text.setWordWrap(False)
+            self.user_text.setFixedWidth(longest)
+            self.card.setFixedWidth(longest + 24)
+        else:
+            self.user_text.setWordWrap(True)
+            self.user_text.setFixedWidth(max_text_w)
+            self.card.setFixedWidth(max_text_w + 24)
+        self.card.updateGeometry()
+
+    def _sync_assistant_width(self) -> None:
+        if self.role == 'user' or getattr(self, '_syncing_width', False):
+            return
+        self._syncing_width = True
+        try:
+            eff_vp = max(320, int(self._viewport))
+            max_card = max(220, min(int(eff_vp * 0.88), eff_vp - 16))
+            full_mode = (
+                self.markdown.has_code_blocks()
+                or self.error_card.isVisible()
+                or self.thinking.isVisible()
+                or self._tools_host.isVisible()
+            )
+            self.markdown.set_width(max(120, max_card - 24))
+            if full_mode:
+                target = max_card
+            else:
+                natural = self.markdown.natural_width() + 28
+                target = max(140, min(max_card, natural))
+            self.card.setFixedWidth(target)
+            self.markdown.set_width(max(100, target - 24))
+            self.card.updateGeometry()
+        finally:
+            self._syncing_width = False
+
     def set_viewport_width(self, width: int) -> None:
-        width = max(120, int(width or 0))
+        width = max(240, int(width or 0))
         if width == self._viewport and getattr(self, '_width_ready', False):
             return
         self._width_ready = True
         self._viewport = width
         self.setMaximumWidth(self._viewport)
         if self.role == 'user':
-            limit = max(120, int(self._viewport * 0.78))
-            self.card.setMaximumWidth(limit)
-            self.user_text.setMaximumWidth(max(80, limit - 24))
+            self._sync_user_width()
         else:
-            self.card.setMaximumWidth(self._viewport)
-            self.markdown.set_width(max(80, self._viewport - 48))
+            self._sync_assistant_width()
         self.resized.emit()
 
     def add_tool(self, tool: str, target: str = '', state: str = 'running', seconds: float | None = 0,
                  call_id: str = '') -> ToolStepLine:
+        self._tools_host.show()
         line = ToolStepLine(tool, target, state, seconds, call_id)
         self.tools.addWidget(line)
+        self._sync_assistant_width()
         return line
 
     def show_error(self, reason: str, tip: str = '') -> None:
@@ -400,9 +464,12 @@ class MessageBubble(QWidget):
         self.phase.stop()
         self.stopped.hide()
         self.copy_btn.hide()
+        if hasattr(self, '_actions_host'):
+            self._actions_host.hide()
         self.error_card.set_reason(reason, tip)
         self.error_card.show()
         self.card.setProperty('failed', True)
+        self._sync_assistant_width()
         _polish(self.card)
 
     def mark_complete(self, text: str) -> None:
@@ -413,7 +480,10 @@ class MessageBubble(QWidget):
         self.phase.stop()
         self.thinking.collapse()
         self.copy_btn.show()
+        if hasattr(self, '_actions_host'):
+            self._actions_host.show()
         self.card.setProperty('failed', False)
+        self._sync_assistant_width()
         _polish(self.card)
 
     def mark_stopped(self) -> None:
@@ -421,6 +491,9 @@ class MessageBubble(QWidget):
         self.thinking.collapse()
         self.stopped.show()
         self.copy_btn.show()
+        if hasattr(self, '_actions_host'):
+            self._actions_host.show()
+        self._sync_assistant_width()
 
     def visible_text(self) -> str:
         if self.role == 'user':
@@ -436,7 +509,11 @@ def _duration(seconds: float) -> str:
     try:
         value = float(seconds)
     except (TypeError, ValueError):
-        value = 0
+        value = 0.0
+    if value <= 0.0:
+        return '<0.1 秒'
+    if value < 0.1:
+        return '<0.1 秒'
     if value.is_integer():
         return f'{int(value)} 秒'
     return f'{value:.1f} 秒'

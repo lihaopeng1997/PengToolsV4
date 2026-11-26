@@ -81,6 +81,7 @@ _ROLE_PREFIXES = ('👤', '🤖', '🔧')
 
 _STEP_LABELS = {
     'list_dir': '列出目录',
+    'find_files': '查找文件',
     'read_file': '读取',
     'read_image': '读取图片',
     'search_code': '搜索',
@@ -105,6 +106,13 @@ def _tool_step_target(name, arguments) -> str:
     args = arguments if isinstance(arguments, dict) else {}
     if tool == 'list_dir':
         target = str(args.get('path') or '').strip() or '项目根目录'
+        depth = args.get('max_depth')
+        if depth and str(depth).isdigit() and int(depth) > 1:
+            target += f'（深度 {depth}）'
+    elif tool == 'find_files':
+        pattern = str(args.get('pattern') or '').strip()
+        scope = str(args.get('path') or '').strip()
+        target = f'“{pattern}”' + (f'（{scope}）' if scope else '')
     elif tool == 'search_code':
         pattern = str(args.get('pattern') or '').strip()
         scope = str(args.get('file_pattern') or '').strip()
@@ -119,8 +127,14 @@ def _tool_step_target(name, arguments) -> str:
         target = f'{path_txt}（{title_txt}）' if title_txt else path_txt
     else:
         target = str(args.get('path') or '').strip()
-        if tool == 'read_file' and args.get('start_offset'):
-            target += f'（从第 {args.get("start_offset")} 个字符起）'
+        if tool == 'read_file':
+            start_line = args.get('start_line')
+            end_line = args.get('end_line')
+            if start_line is not None or end_line is not None:
+                s = start_line or 1
+                target += f'（第 {s}–{end_line} 行）' if end_line else f'（从第 {s} 行起）'
+            elif args.get('start_offset'):
+                target += f'（从第 {args.get("start_offset")} 个字符起）'
     return target
 
 
@@ -727,7 +741,7 @@ class AgentWorkbenchPanel(QWidget):
         self.input.setObjectName('agent-composer-input')
         self.input.setFrameShape(QFrame.Shape.NoFrame)
         self.input.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
-        from ui.chat_kit.composer import install_autogrow_plain_edit
+        from ui.chat_kit.composer import ModelPillButton, install_autogrow_plain_edit
         install_autogrow_plain_edit(self.input, min_height=46, max_height=168)
         self.input.installEventFilter(self)
         from ui.text_actions import install_text_actions
@@ -735,15 +749,17 @@ class AgentWorkbenchPanel(QWidget):
         composer_l.addWidget(self.input, 0)
 
         send_row = QHBoxLayout()
+        send_row.setContentsMargins(0, 2, 0, 0)
         send_row.setSpacing(8)
 
-        # "+" 菜单按钮
+        # "+" 菜单按钮（紧凑圆角图标按钮）
         self.add_attachment_btn = QToolButton()
         self.add_attachment_btn.setText('+')
-        self.add_attachment_btn.setToolTip('新建对话 / 添加工作区文件引用 / 清空附件')
+        self.add_attachment_btn.setFixedSize(28, 28)
+        self.add_attachment_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_attachment_btn.setToolTip('新建对话 / 添加工作区文件或图片引用')
         self.add_attachment_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        apply_button(self.add_attachment_btn, 'ghost', compact=True)
-        self.add_attachment_btn.setObjectName('agent-attachment-btn')
+        self.add_attachment_btn.setObjectName('chat-attach-btn')
         self.add_attachment_btn.setAccessibleName('对话与附件菜单')
         attach_menu = QMenu(self.add_attachment_btn)
         self.new_conv_action = attach_menu.addAction('新建对话', self._new_conversation)
@@ -753,28 +769,35 @@ class AgentWorkbenchPanel(QWidget):
         self.clear_ref_action = attach_menu.addAction('清空附件', self._clear_attachments)
         self.add_attachment_btn.setMenu(attach_menu)
 
+        # 胶囊式模型选择器（点击向上弹出模型与执行方式菜单，选定模型直接展示在左下方）
+        self.exec_mode_combo.hide()
+        self.model_pill = ModelPillButton(
+            self.model_combo,
+            composer_container,
+            extra_menu_builder=self._populate_model_popup_extras,
+        )
+        self.exec_mode_combo.currentIndexChanged.connect(lambda *_: self._sync_model_pill_mode())
+
         self.send_hint = QLabel()
         self.send_hint.setObjectName('field-hint')
         self.send_hint.setMinimumWidth(0)
-        self.send_hint.setWordWrap(True)
+        self.send_hint.setWordWrap(False)
+        self.send_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.send_hint.hide()
+
         self.send_btn = QPushButton()
         apply_button(self.send_btn, 'primary', compact=True)
+        self.send_btn.setFixedHeight(28)
         self.send_btn.clicked.connect(self._on_action_clicked)
         self.stop_btn = QPushButton()
         apply_button(self.stop_btn, 'secondary', compact=True)
         self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.hide()
 
-        # 底栏可收缩：模型名与快捷键提示让位给执行方式（执行方式文字必须完整）
-        self.model_combo.setMinimumWidth(110)
-        self.model_combo.setMinimumContentsLength(6)
-        self.send_hint.setWordWrap(False)
-        self.send_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        send_row.addWidget(self.add_attachment_btn)
-        send_row.addWidget(self.model_combo)
-        send_row.addWidget(self.exec_mode_combo)
-        send_row.addWidget(self.send_hint, 1)
-        send_row.addWidget(self.send_btn)
+        send_row.addWidget(self.add_attachment_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        send_row.addWidget(self.model_pill, 0, Qt.AlignmentFlag.AlignVCenter)
+        send_row.addStretch(1)
+        send_row.addWidget(self.send_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         composer_l.addLayout(send_row)
 
         composer_host = QWidget()
@@ -1118,6 +1141,28 @@ class AgentWorkbenchPanel(QWidget):
 
     # ── 模型选择 ──────────────────────────────────────────────────────────
 
+    def _populate_model_popup_extras(self, menu: QMenu):
+        if self.exec_mode_combo.count() <= 0:
+            return
+        menu.addSeparator()
+        zh = self.language == 'zh'
+        sec = menu.addAction('执行方式' if zh else 'Execution mode')
+        sec.setEnabled(False)
+        cur = self.exec_mode_combo.currentIndex()
+        for idx in range(self.exec_mode_combo.count()):
+            label = self.exec_mode_combo.itemText(idx)
+            prefix = '✓  ' if idx == cur else '    '
+            act = menu.addAction(f'{prefix}{label}')
+            act.triggered.connect(lambda _checked=False, i=idx: self.exec_mode_combo.setCurrentIndex(i))
+
+    def _sync_model_pill_mode(self):
+        pill = getattr(self, 'model_pill', None)
+        if pill is None:
+            return
+        zh = self.language == 'zh'
+        badge = ('需确认' if zh else 'Confirm') if self.exec_mode_combo.currentIndex() == 1 else ''
+        pill.set_suffix_badge(badge)
+
     def _reload_models(self, select_id: str = ''):
         settings = load_settings()
         wanted = select_id or str(settings.get('model_chat_last_model_id') or '')
@@ -1129,6 +1174,8 @@ class AgentWorkbenchPanel(QWidget):
             if wanted and item.get('id') == wanted:
                 self.model_combo.setCurrentIndex(self.model_combo.count() - 1)
         self.model_combo.blockSignals(False)
+        if hasattr(self, 'model_pill'):
+            self.model_pill.sync()
 
     def _on_model_changed(self, idx: int = 0):
         data = self._current_model()
@@ -1642,7 +1689,10 @@ class AgentWorkbenchPanel(QWidget):
         elif dropped:
             short = '请求已精简 · 原文保留' if zh else 'Request trimmed · history kept'
         else:
-            short = '原文保留' if zh else 'History kept'
+            # 常规状态不占用输入卡片顶部一整行显示“原文保留”
+            self.context_budget_label.clear()
+            self.context_budget_label.hide()
+            return
 
         estimate = state['input_estimate']
         if state['estimate_kind'] == 'heuristic_utf8_bytes':
@@ -2174,6 +2224,8 @@ class AgentWorkbenchPanel(QWidget):
             self.send_btn.setEnabled(not self._closing)
         self.send_btn.setMinimumWidth(self.send_btn.sizeHint().width())
         self.model_combo.setEnabled(not is_running and not self._closing)
+        if hasattr(self, 'model_pill'):
+            self.model_pill.setEnabled(not is_running and not self._closing)
         self.exec_mode_combo.setEnabled(not is_running and not self._closing)
         self.input.setEnabled(not self._closing)
         self.add_attachment_btn.setEnabled(not is_running and not self._closing)

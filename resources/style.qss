@@ -449,7 +449,7 @@ QPushButton[actionRole="primary"][compactAction="true"] {
     min-height: 20px;
     max-height: 20px;
     font-size: 12px;
-    border-radius: 14px;
+    border-radius: 8px;
 }
 QPushButton[compactAction="false"] {
     min-height: 22px;
@@ -697,18 +697,18 @@ QFrame#release-generate-zone QLabel#zone-title-inline { color: __TEXT_STRONG__; 
 /* —— 输入 / 下拉 / 多行：统一高度、利落 8px 圆角（杜绝 28px 高度下过圆成椭圆）、焦点环 —— */
 QComboBox, QLineEdit, QDateEdit, QTimeEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
-    border-radius: 8px; padding: 4px 10px; selection-background-color: __PRIMARY_SOFT__;
+    border-radius: 8px; padding: 3px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
-    min-height: 18px;
-    max-height: 28px;
+    min-height: 20px;
+    max-height: 20px;
 }
 QTextEdit, QPlainTextEdit {
     background: __SURFACE__; color: __TEXT_STRONG__; border: 1px solid __BORDER__;
     border-radius: 10px; padding: 7px 10px; selection-background-color: __PRIMARY_SOFT__;
     selection-color: __TEXT_STRONG__;
 }
-QComboBox { padding-right: 38px; combobox-popup: 0; }
-QDateEdit, QTimeEdit { min-width: 150px; max-width: 160px; padding-right: 36px; }
+QComboBox { padding: 3px 26px 3px 10px; combobox-popup: 0; }
+QDateEdit, QTimeEdit { min-width: 150px; max-width: 160px; padding-right: 30px; }
 QComboBox:hover, QLineEdit:hover, QDateEdit:hover, QTimeEdit:hover { border-color: __PRIMARY__; background: __SURFACE__; }
 QComboBox:focus, QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
     border: 2px solid __FOCUS_RING__;
@@ -764,7 +764,7 @@ QPlainTextEdit[readOnlyField="true"]:disabled {
 }
 QComboBox::drop-down {
     subcontrol-origin: padding; subcontrol-position: top right;
-    width: 28px; border: none;
+    width: 22px; border: none;
     background: transparent; border-top-right-radius: 7px; border-bottom-right-radius: 7px;
 }
 QComboBox::drop-down:hover { background: transparent; }
@@ -1475,14 +1475,14 @@ QPushButton#flag-chip {
     background: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
-    border-radius: 8px;
-    padding: 5px 8px 6px 8px; /* 下边略多，边框完整不裁切 */
+    border-radius: 11px;
+    padding: 1px 9px;
     font-weight: 600;
-    font-size: 12px;
-    min-height: 30px;
-    max-height: 34px;
-    min-width: 72px;
-    text-align: left;
+    font-size: 11.5px;
+    min-height: 18px;
+    max-height: 20px;
+    min-width: 54px;
+    text-align: center;
 }
 QPushButton#flag-chip[flagDone="true"] {
     background: __PRIMARY_SOFT__;
@@ -1498,8 +1498,8 @@ QPushButton#flag-chip:hover {
     border-color: __PRIMARY__;
 }
 QPushButton#flag-chip:pressed {
-    padding-top: 6px;
-    padding-bottom: 5px;
+    padding-top: 2px;
+    padding-bottom: 1px;
 }
 QLabel#flag-section-caption {
     color: __TEXT_MUTED__;
@@ -1826,8 +1826,53 @@ QComboBox#table-combo:hover, QComboBox#release-extra-system:hover {
     background: __SURFACE__;
 }
 QDialog#confirm-dialog {
+    background: transparent;
+    border: none;
+}
+QFrame#glass-dialog-shell {
+    background: rgba(255, 255, 255, 246);
+    border: 1px solid rgba(114, 96, 224, 58);
+    border-radius: 16px;
+}
+QFrame#glass-dialog-titlebar {
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 1, y2: 0,
+        stop: 0 rgba(244, 241, 255, 235),
+        stop: 1 rgba(238, 245, 255, 230)
+    );
+    border-bottom: 1px solid rgba(114, 96, 224, 28);
+    border-top-left-radius: 15px;
+    border-top-right-radius: 15px;
+}
+QLabel#glass-dialog-title {
+    color: __TEXT_STRONG__;
+    font-size: 13px;
+    font-weight: 600;
+    background: transparent;
+}
+QPushButton#glass-dialog-close {
+    background: transparent;
+    border: none;
+    border-radius: 11px;
+    color: __TEXT_MUTED__;
+    font-size: 15px;
+    font-weight: 600;
+    min-width: 22px;
+    max-width: 22px;
+    min-height: 22px;
+    max-height: 22px;
+    padding: 0px;
+}
+QPushButton#glass-dialog-close:hover {
+    background: rgba(114, 96, 224, 28);
+    color: __TEXT_STRONG__;
+}
+QPushButton#glass-dialog-close:pressed {
+    background: rgba(114, 96, 224, 46);
+}
+QDialog {
     background: __ELEVATED_SURFACE__;
-    border: 1px solid __ELEVATED_BORDER__;
+    border-radius: 14px;
 }
 QLabel#confirm-title {
     color: __TEXT_STRONG__;
@@ -1837,8 +1882,8 @@ QLabel#confirm-title {
     background: transparent;
 }
 QFrame#confirm-card {
-    background: __SURFACE__;
-    border: 1px solid __BORDER__;
+    background: rgba(248, 247, 255, 215);
+    border: 1px solid rgba(114, 96, 224, 34);
     border-radius: 12px;
 }
 QLabel#confirm-message {
@@ -2584,27 +2629,27 @@ QWidget#fold-margin {
 }
 QTreeWidget#json-tree {
     background: __SURFACE__;
-    alternate-background-color: __SURFACE_SOFT__;
     color: __TEXT_STRONG__;
     border: 1px solid __BORDER__;
     border-radius: 10px;
-    selection-background-color: __TABLE_SELECT__;
+    selection-background-color: #EFEBF9;
     selection-color: __TEXT_STRONG__;
     outline: 0;
     show-decoration-selected: 1;
 }
 QTreeWidget#json-tree::item {
-    min-height: 28px;
-    padding: 5px 8px;
-    border-bottom: 1px solid __SURFACE_SOFT__;
+    min-height: 22px;
+    padding: 2px 6px;
+    border: none;
+    border-bottom: 1px solid #F2EFF9;
 }
-QTreeWidget#json-tree::item:hover { background: __PRIMARY_SOFT__; color: __TEXT_STRONG__; }
+QTreeWidget#json-tree::item:hover { background: #F7F5FC; }
 QTreeWidget#json-tree::item:selected,
 QTreeWidget#json-tree::item:selected:active,
 QTreeWidget#json-tree::item:selected:!active {
-    background: __TABLE_SELECT__;
-    color: __PRIMARY_ACTIVE__;
-    border-left: 2px solid __PRIMARY__;
+    background: #EFEBF9;
+    border: none;
+    border-bottom: 1px solid #E2DAF4;
 }
 QTreeWidget#json-tree QHeaderView::section,
 QHeaderView#json-tree-header::section {
@@ -3743,7 +3788,7 @@ QTextBrowser#chat-markdown {
     outline: none;
     padding: 0px;
     font-family: __FONT_UI__;
-    font-size: 14px;
+    font-size: 13px;
 }
 QTextBrowser#chat-markdown:focus {
     border: none;
@@ -3812,11 +3857,12 @@ QPushButton#chat-copy-btn {
     background: transparent;
     color: __TEXT_MUTED__;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 6px;
     font-family: __FONT_UI__;
-    font-size: 12px;
-    padding: 4px 8px;
-    min-height: 22px;
+    font-size: 11px;
+    padding: 1px 7px;
+    min-height: 18px;
+    max-height: 20px;
 }
 QPushButton#chat-copy-btn:hover {
     color: __TEXT__;
@@ -3895,8 +3941,9 @@ QPushButton#chat-error-retry {
     border-radius: 8px;
     font-family: __FONT_UI__;
     font-size: 12px;
-    padding: 4px 8px;
-    min-height: 32px;
+    padding: 2px 10px;
+    min-height: 20px;
+    max-height: 20px;
 }
 QPushButton#chat-send-btn {
     background: __PRIMARY__;
@@ -3904,9 +3951,11 @@ QPushButton#chat-send-btn {
     border: 1px solid __PRIMARY__;
     border-radius: 8px;
     font-family: __FONT_UI__;
-    font-size: 14px;
-    padding: 4px 16px;
-    min-height: 32px;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 2px 14px;
+    min-height: 20px;
+    max-height: 20px;
 }
 QPushButton#chat-send-btn[danger="true"] {
     background: transparent;
@@ -4016,12 +4065,21 @@ QTreeWidget#agent-space-tree {
     border: none;
 }
 QTreeWidget#agent-space-tree::item {
-    padding: 5px 4px;
+    padding: 5px 8px;
+    border: none;
     border-radius: 8px;
 }
-QTreeWidget#agent-space-tree::item:selected {
+QTreeWidget#agent-space-tree::item:hover {
+    background: rgba(108, 88, 217, 0.06);
+    border: none;
+}
+QTreeWidget#agent-space-tree::item:selected,
+QTreeWidget#agent-space-tree::item:selected:active,
+QTreeWidget#agent-space-tree::item:selected:!active {
     background: __ELEVATED_SURFACE__;
     color: __PRIMARY__;
+    border: none;
+    font-weight: 600;
 }
 
 QPlainTextEdit#agent-composer-input {
@@ -4404,17 +4462,286 @@ QPushButton#btn-ghost[compactAction="true"][cornerPlain="true"]:checked {
 QPushButton[cornerPlain="true"], QPushButton#btn-ghost[cornerPlain="true"] {
     padding: 0px;
 }
-QToolButton[toolbarMore="true"] {
+QToolButton[toolbarMore="true"],
+QToolButton#responsive-more-btn {
     background: transparent;
     border: 1px solid __BORDER__;
     border-radius: 8px;
     padding: 3px 10px;
+    min-height: 20px;
+    max-height: 20px;
     color: __TEXT__;
 }
-QToolButton[toolbarMore="true"]:hover {
+QToolButton[toolbarMore="true"]:hover,
+QToolButton#responsive-more-btn:hover {
     background: __SURFACE_SOFT__;
+    border-color: __PRIMARY__;
 }
 QToolButton[toolbarMore="true"]::menu-indicator {
     image: none;
     width: 0px;
+}
+
+/* —— 数据中心：右侧工作区标签栏与基线齐平（消除双线/错位） —— */
+QTabWidget#data-center-workspace-tabs::pane {
+    background: __SURFACE__;
+    border: none;
+    border-top: 1px solid __BORDER__;
+    border-radius: 0px;
+    top: -1px;
+    padding: 0px;
+}
+QTabWidget#data-center-workspace-tabs QTabBar {
+    min-height: 34px;
+    max-height: 34px;
+    background: transparent;
+}
+QTabWidget#data-center-workspace-tabs QTabBar::tab {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    padding: 6px 14px;
+    margin-right: 2px;
+    min-height: 20px;
+    max-height: 20px;
+    font-size: 12.5px;
+    font-weight: 500;
+}
+QTabWidget#data-center-workspace-tabs QTabBar::tab:hover {
+    color: __TEXT_STRONG__;
+    background: __SURFACE_SOFT__;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+QTabWidget#data-center-workspace-tabs QTabBar::tab:selected {
+    color: __PRIMARY_ACTIVE__;
+    background: __SURFACE__;
+    border-bottom: 2px solid __PRIMARY__;
+    font-weight: 600;
+}
+
+/* —— 数据中心：左侧连接树（消除分支区断层高亮，统一柔和箭头） —— */
+QTreeView#data-center-connection-tree {
+    background: __SURFACE__;
+    border: 1px solid __BORDER__;
+    border-radius: 10px;
+    padding: 4px 2px;
+    outline: 0;
+}
+QTreeView#data-center-connection-tree::item {
+    border: none;
+    background: transparent;
+}
+QTreeView#data-center-connection-tree::item:selected,
+QTreeView#data-center-connection-tree::item:hover {
+    background: transparent;
+}
+QTreeView#data-center-connection-tree::branch,
+QTreeView#data-center-connection-tree::branch:hover,
+QTreeView#data-center-connection-tree::branch:selected,
+QTreeView#data-center-connection-tree::branch:selected:active,
+QTreeView#data-center-connection-tree::branch:selected:!active {
+    background: transparent;
+    border: none;
+}
+QTreeView#data-center-connection-tree::branch:has-children:!has-siblings:closed,
+QTreeView#data-center-connection-tree::branch:closed:has-children:has-siblings {
+    border-image: none;
+    image: url("__BRANCH_CLOSED__");
+}
+QTreeView#data-center-connection-tree::branch:open:has-children:!has-siblings,
+QTreeView#data-center-connection-tree::branch:open:has-children:has-siblings {
+    border-image: none;
+    image: url("__BRANCH_OPEN__");
+}
+
+/* —— 数据中心 AI 助手：DBX 风格紧凑高密度排版 —— */
+QFrame#dc-agent-header {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid __BORDER__;
+    border-radius: 0px;
+}
+QLabel#dc-agent-title {
+    color: __TEXT_STRONG__;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+}
+QLabel#dc-agent-status-strip {
+    color: __TEXT_MUTED__;
+    font-size: 11px;
+    padding: 0px 4px;
+    background: transparent;
+}
+QFrame#dc-agent-meta-bar {
+    background: transparent;
+    border: none;
+}
+QLabel#dc-agent-status-pill {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border: none;
+    border-radius: 9px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QLabel#dc-agent-status-pill[statusRole="success"] {
+    background: #ECFDF5;
+    color: #047857;
+}
+QLabel#dc-agent-status-pill[statusRole="warning"] {
+    background: #FFFBEB;
+    color: #B45309;
+}
+QLabel#dc-agent-status-pill[statusRole="danger"] {
+    background: #FEF2F2;
+    color: #B91C1C;
+}
+QPushButton#dc-agent-details-toggle {
+    background: transparent;
+    color: __TEXT_MUTED__;
+    border: 1px solid __BORDER__;
+    border-radius: 7px;
+    padding: 2px 8px;
+    min-height: 18px;
+    max-height: 20px;
+    font-size: 11px;
+    font-weight: 500;
+}
+QPushButton#dc-agent-details-toggle:hover,
+QPushButton#dc-agent-details-toggle:checked {
+    color: __PRIMARY_ACTIVE__;
+    border-color: __PRIMARY__;
+    background: __PRIMARY_SOFT__;
+}
+QFrame#dc-agent-composer {
+    background: __ELEVATED_SURFACE__;
+    border: 1px solid __BORDER_STRONG__;
+    border-radius: 12px;
+}
+QPlainTextEdit#dc-agent-prompt-input {
+    background: transparent;
+    color: __TEXT_STRONG__;
+    border: none;
+    padding: 2px 2px;
+    font-size: 12.5px;
+}
+QComboBox#dc-agent-mini-combo {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 7px;
+    padding: 1px 22px 1px 8px;
+    min-height: 20px;
+    max-height: 22px;
+    font-size: 11.5px;
+}
+QComboBox#dc-agent-mini-combo:hover {
+    border-color: __PRIMARY__;
+    background: __SURFACE__;
+}
+QComboBox#dc-agent-mini-combo::drop-down {
+    width: 18px;
+}
+QPushButton#chat-sql-action-btn,
+QPushButton#chat-sql-run-btn {
+    background: rgba(255, 255, 255, 0.08);
+    color: #E2E8F0;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    padding: 1px 8px;
+    min-height: 20px;
+    max-height: 22px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#chat-sql-action-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #FFFFFF;
+}
+QPushButton#chat-sql-run-btn {
+    background: rgba(99, 102, 241, 0.28);
+    border-color: rgba(129, 140, 248, 0.55);
+    color: #E0E7FF;
+}
+QPushButton#chat-sql-run:hover,
+QPushButton#chat-sql-run-btn:hover {
+    background: __PRIMARY__;
+    border-color: __PRIMARY__;
+    color: #FFFFFF;
+}
+QPushButton#chat-model-pill {
+    background: #F3F0FA;
+    color: __TEXT_STRONG__;
+    border: 1px solid #E2DCF2;
+    border-radius: 14px;
+    padding: 0px 12px;
+    min-height: 28px;
+    max-height: 28px;
+    font-size: 12.5px;
+    font-weight: 600;
+}
+QPushButton#chat-model-pill:hover {
+    background: #EAE4F8;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
+QPushButton#chat-model-pill:disabled {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_MUTED__;
+    border-color: __BORDER__;
+}
+QMenu#chat-model-popup {
+    background: #FFFFFF;
+    border: 1px solid #E2DCF2;
+    border-radius: 12px;
+    padding: 6px;
+}
+QMenu#chat-model-popup::item {
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: __TEXT_STRONG__;
+}
+QMenu#chat-model-popup::item:selected {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+}
+QMenu#chat-model-popup::item:disabled {
+    color: __TEXT_MUTED__;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 14px;
+}
+QPushButton#ops-compact-btn {
+    background: __SURFACE_SOFT__;
+    color: __TEXT_STRONG__;
+    border: 1px solid __BORDER__;
+    border-radius: 7px;
+    padding: 0px 9px;
+    min-height: 24px;
+    max-height: 26px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton#ops-compact-btn:hover {
+    background: __PRIMARY_SOFT__;
+    border-color: __PRIMARY__;
+    color: __PRIMARY_ACTIVE__;
+}
+QPushButton#ops-compact-btn[primaryCompact="true"] {
+    background: __PRIMARY_SOFT__;
+    color: __PRIMARY_ACTIVE__;
+    border-color: #C7BEFA;
+    font-weight: 600;
+}
+QPushButton#ops-compact-btn[primaryCompact="true"]:hover {
+    background: __PRIMARY__;
+    border-color: __PRIMARY__;
+    color: #FFFFFF;
 }

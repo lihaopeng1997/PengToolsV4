@@ -101,34 +101,37 @@ class _CatalogRowDelegate(QStyledItemDelegate):
     def _paint_engine_section(self, painter, option, index) -> None:
         theme = ThemeManager.instance()
         token = lambda name: QColor(theme.token(name))  # noqa: E731
-        rect = QRectF(option.rect).adjusted(1, 0, -2, 0)
+        rect = QRectF(option.rect).adjusted(2, 0, -4, 0)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         if index.row() > 0:
-            painter.setPen(token("BORDER"))
+            divider = token("BORDER")
+            divider.setAlpha(150)
+            painter.setPen(divider)
             painter.drawLine(int(rect.left()), int(rect.top()) + 1, int(rect.right()), int(rect.top()) + 1)
         dialect = str(index.data(ENGINE_ROLE) or "").lower()
         _text, badge_token = _ENGINE_BADGES.get(dialect, ("", "TEXT_MUTED"))
         color = token(badge_token)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
-        painter.drawRoundedRect(QRectF(rect.left() + 2, rect.center().y() - 4, 8, 8), 2, 2)
+        painter.drawEllipse(QRectF(rect.left() + 2, rect.center().y() - 3.5, 7, 7))
         font = QFont(option.font)
         font.setBold(True)
         metrics = QFontMetrics(font)
         label = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
-        left = rect.left() + 16
+        left = rect.left() + 14
         painter.setFont(font)
         painter.setPen(token("TEXT_STRONG"))
-        text_rect = QRectF(left, rect.top(), max(0.0, rect.width() - 16), rect.height())
+        text_rect = QRectF(left, rect.top(), max(0.0, rect.width() - 14), rect.height())
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label)
         count = index.data(SECTION_COUNT_ROLE)
         if count:
             count_font = QFont(option.font)
+            count_font.setPointSizeF(max(7.5, (option.font.pointSizeF() or 9.0) * 0.85))
             painter.setFont(count_font)
             painter.setPen(token("TEXT_MUTED"))
             painter.drawText(
-                text_rect.adjusted(metrics.horizontalAdvance(label) + 8, 0, 0, 0),
+                text_rect.adjusted(metrics.horizontalAdvance(label) + 6, 0, 0, 0),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(count),
             )
         painter.restore()
@@ -264,8 +267,9 @@ class WorkspaceTree(QTreeView):
         self.setMouseTracking(True)
         self.setItemDelegate(_CatalogRowDelegate(self))
         self.setExpandsOnDoubleClick(False)
-        self.setIndentation(14)
+        self.setIndentation(16)
         self.setAnimated(False)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.source_model = QStandardItemModel(self)
         self.proxy_model = _RecursiveFilterProxy(self)
         self.proxy_model.setSourceModel(self.source_model)

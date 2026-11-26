@@ -43,14 +43,16 @@ from .contracts import (
     stable_json,
 )
 from .request_budget import RequestInputLimitExceeded
-from .text_protocol import prepare_text_tool_calls
+from .text_protocol import prepare_text_tool_calls, resolve_tool_alias
 
 logger = get_logger(__name__)
 
 
 # A model that only announces the next step is not finished. Continue in this
 # same run instead of returning that sentence as the answer.
-_CONTINUE_ANNOUNCEMENT = "请直接调用工具继续执行，不要只描述计划。"
+_CONTINUE_ANNOUNCEMENT = (
+    "请不要只描述下一步计划，现在立刻在同一条回复里调用对应的工具（如 read_file / find_files / search_code / list_dir 等）执行并获取结果。"
+)
 _CONTINUE_EMPTY = (
     "上一条没有可见回答，也没有成功的查询结果。"
     "请调用工具查出数据后再用简短中文回答，不要空回复。"
@@ -71,7 +73,7 @@ _TOOL_FAILURE_TEXT = {
     "empty_output": "模型没有输出内容",
 }
 _MAX_TOOL_FORMAT_RETRIES = 2
-_MAX_ANNOUNCEMENT_CONTINUATIONS = 2
+_MAX_ANNOUNCEMENT_CONTINUATIONS = 4
 # A host may reject a text answer as structurally incomplete (for example a
 # heading and an event ID with no cause or next step).  The reason is carried
 # into one more turn so the model can repair its own answer.
@@ -81,36 +83,57 @@ _CONTINUE_INCOMPLETE = (
     + "{reason}。请重新给出完整回答，包含已确认现象、可能原因、缺失证据和下一步检查；"
     "不要只补一句结论，没有把握的部分明确标注为推断。"
 )
-_COLON_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先", "现在我将")
-_LOOSE_PREFIXES = ("让我", "我来", "我先", "我再", "现在我将")
-_ACTION_STARTS = ("查", "搜", "看", "读", "检查", "分析", "核对", "验证", "执行", "调用", "确认", "定位", "打开", "获取", "尝试")
+_COLON_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先", "现在我将", "下面我")
+_LOOSE_PREFIXES = ("让我", "我来", "我先", "我再", "现在我将", "现在我来", "接下来我", "接下来让", "下面我", "下面让")
+_DIRECT_ACTION_PREFIXES = ("先看", "先读", "先查", "先检查", "先查看", "先了解", "继续看", "继续读", "继续查", "接下来看", "接下来读", "接下来查")
+_ACTION_STARTS = ("查", "搜", "看", "读", "检查", "分析", "核对", "验证", "执行", "调用", "确认", "定位", "打开", "获取", "尝试", "了解", "浏览")
 _COLON_ONLY_PREFIXES = ("下面", "接下来")
 _MAX_UNFINISHED_CONTINUATIONS = 3
 
 
 def unfinished_work_announcement(text: str) -> bool:
-    """One short line that only announces the next action and then stops.
-
-    The caller must also require that this turn produced no tool call.
-    A colon ending matches the older marker rule. A full stop or no
-    punctuation matches only the tighter prefixes. 「下面」 and 「接下来」
-    count only when the line ends with a colon.
-    """
+    """Short turn that only announces the next action (e.g. after a period/comma) and stops without calling a tool."""
 
     body = str(text or "").strip()
-    if not body or len(body) > 160 or "\n" in body:
+    if not body or len(body) > 240 or body.count("\n") > 2:
         return False
     if body[-1] in ":：" and (
         any(marker in body for marker in _COLON_MARKERS)
         or body.startswith(_COLON_ONLY_PREFIXES)
     ):
         return True
-    action = next((body[len(prefix):].lstrip() for prefix in _LOOSE_PREFIXES if body.startswith(prefix)), "")
-    if not action.startswith(_ACTION_STARTS) or any(mark in action for mark in "，,；;"):
+    # Inspect both the full text and the trailing sentence/clause after 。/！/；/，/\n
+    # so turns like "找到了批改保费计算相关的文件。让我读取核心的批改计算服务和API。" continue automatically.
+    core = body.rstrip("。！! ")
+    if not core:
         return False
-    if body[-1] == "。":
-        return True
-    return not unicodedata.category(body[-1]).startswith("P")
+    clauses = [body]
+    import re as _re
+    parts = [p.strip() for p in _re.split(r"[。！!；;，,\n]+", core) if p.strip()]
+    if parts:
+        last_part = parts[-1]
+        tail_punct = "。" if body.endswith(("。", "！", "!")) else ""
+        candidate = last_part + tail_punct
+        if candidate not in clauses:
+            clauses.append(candidate)
+    for idx, clause in enumerate(clauses):
+        clean_clause = clause.strip()
+        if not clean_clause:
+            continue
+        if clean_clause.startswith(_DIRECT_ACTION_PREFIXES):
+            if clean_clause[-1] in "。！!" or not unicodedata.category(clean_clause[-1]).startswith("P"):
+                return True
+        action = next((clean_clause[len(prefix):].lstrip() for prefix in _LOOSE_PREFIXES if clean_clause.startswith(prefix)), "")
+        if not action:
+            continue
+        if idx == 0 and any(mark in action for mark in "。，,；;\n"):
+            continue
+        if action.startswith(_ACTION_STARTS) or action.startswith(("重新", "继续", "先", "进一步", "深入", "全面")):
+            if clean_clause[-1] in "。！!":
+                return True
+            if not unicodedata.category(clean_clause[-1]).startswith("P"):
+                return True
+    return False
 
 
 def _intranet_soft_mode() -> bool:
@@ -621,6 +644,7 @@ class AgentRunner:
             unfinished_continuations = 0
             tool_format_repairs = 0
             announcement_continuations = 0
+            total_announcement_continuations = 0
             for turn_index in range(run_budget.limits.max_model_turns):
                 if closed:
                     break
@@ -936,8 +960,13 @@ class AgentRunner:
                         unfinished_work_announcement(visible_text)
                         or unfinished_work_announcement(complete_text)
                     )
-                    if announced and announcement_continuations < _MAX_ANNOUNCEMENT_CONTINUATIONS:
+                    if (
+                        announced
+                        and announcement_continuations < _MAX_ANNOUNCEMENT_CONTINUATIONS
+                        and total_announcement_continuations < 16
+                    ):
                         announcement_continuations += 1
+                        total_announcement_continuations += 1
                         spoken = visible_text if str(visible_text or "").strip() else complete_text
                         working_messages.append({"role": "assistant", "content": spoken})
                         append_transient("user", _CONTINUE_ANNOUNCEMENT)
@@ -997,6 +1026,24 @@ class AgentRunner:
                             "verification_status": "verified" if query_ids else "unverified",
                         },
                     )
+
+                # Resolve safe tool-name aliases for native tool calls too,
+                # strictly bounded to this turn's allowed_names.
+                if calls and enforce_closed_set:
+                    normalized_calls = []
+                    for call in calls:
+                        if isinstance(call, ToolCall) and call.name and call.name not in allowed_names:
+                            aliased = resolve_tool_alias(call.name, allowed_names)
+                            if aliased:
+                                call = ToolCall(call.call_id, aliased, dict(call.arguments))
+                        normalized_calls.append(call)
+                    calls = tuple(normalized_calls)
+
+                # Model made real tool calls in this turn: reset consecutive
+                # announcement / empty-output retry counters so multi-step code
+                # exploration does not exhaust its continuation budget early.
+                announcement_continuations = 0
+                unfinished_continuations = 0
 
                 # Validate all calls before executing the first one.  A single
                 # unknown/conflicting request therefore cannot cause a partial

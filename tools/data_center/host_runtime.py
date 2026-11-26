@@ -9,7 +9,7 @@ builds only the model/tool envelope and returns closed, no-I/O tool results.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import contextvars
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import inspect
@@ -214,16 +214,28 @@ def _close(value: Any) -> None:
             pass
 
 
-_SQL_FENCE = re.compile(r"^```(?:sql|oracle|mysql)?[^\n]*\n([\s\S]*?)\n?```$", re.I)
+_SQL_FENCE = re.compile(r"```(?:sql|oracle|mysql|plsql)?[^\n]*\n([\s\S]*?)\n?```", re.I)
+_SQL_LEADING_XML_TAG = re.compile(r"^\s*</?(?:parameter|function|invoke|tool_call|function_call)\b[^>]*>\s*", re.I)
+_SQL_STRAY_XML_TAG = re.compile(r"\s*</?(?:parameter|function|invoke|tool_call|function_call)\b[^>]*>\s*$", re.I)
 
 
 def _unwrap_model_sql(sql: str) -> str:
-    """Drop one Markdown fence around a model-written statement."""
+    """Drop Markdown fences, stray XML tags, escaped newlines, or trailing semicolons."""
 
-    text = str(sql or "").strip()
-    match = _SQL_FENCE.fullmatch(text)
-    if match:
-        return match.group(1).strip()
+    text = str(sql or "").replace("\u00a0", " ").replace("\ufeff", "").strip()
+    text = _SQL_LEADING_XML_TAG.sub("", text)
+    text = _SQL_STRAY_XML_TAG.sub("", text).strip()
+    if "\n" not in text and "\\n" in text:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t").strip()
+    found = _SQL_FENCE.search(text)
+    if found:
+        text = found.group(1).strip()
+    if len(text) >= 2 and text[0] == "`" and text[-1] == "`" and text.count("`") == 2:
+        text = text[1:-1].strip()
+    if text.endswith((";", "；")):
+        without = text[:-1].rstrip()
+        if without and not without.endswith((";", "；")):
+            text = without
     return text
 
 
@@ -659,6 +671,20 @@ class _VerifiedQueryHandler:
                     scope=context.as_dict(),
                     limits={"policy_version": "dc-02", "scope": "target_bound"},
                 )
+            if decision.sql and isinstance(sql, str) and decision.sql != sql:
+                if isinstance(call, ToolCall):
+                    updated_args = dict(call.arguments)
+                    updated_args["sql"] = decision.sql
+                    call = ToolCall(call.call_id, call.name, updated_args)
+                elif isinstance(call, Mapping):
+                    updated = dict(call)
+                    updated_args = dict(arguments)
+                    updated_args["sql"] = decision.sql
+                    if "arguments" in updated:
+                        updated["arguments"] = updated_args
+                    elif "args" in updated:
+                        updated["args"] = updated_args
+                    call = updated
         method = self._dependency
         if not callable(method):
             for name in ("execute", "run", "query", "execute_query"):
@@ -1270,6 +1296,113 @@ class _TextProtocolAdapter:
         )
 
 
+def _build_local_schema_hint(
+    snapshot: Mapping[str, Any] | None,
+    prompt: str,
+    allowed_schemas: Sequence[str],
+    *,
+    max_tables: int = 8,
+    max_chars: int = 2400,
+) -> str:
+    """Build a bounded, schema-allowlist-filtered local metadata hint for the prompt."""
+    if not isinstance(snapshot, Mapping) or not allowed_schemas:
+        return ""
+    objects = snapshot.get("objects")
+    if not isinstance(objects, (list, tuple)) or not objects:
+        return ""
+    allowed_fold = {str(s or "").strip().casefold() for s in allowed_schemas if str(s or "").strip()}
+    if not allowed_fold:
+        return ""
+    prompt_text = str(prompt or "").strip()
+    ascii_tokens = [tok.casefold() for tok in re.findall(r"[A-Za-z0-9_]{2,}", prompt_text)]
+    zh_tokens = [tok for tok in re.findall(r"[\u4e00-\u9fff]{2,}", prompt_text)]
+    # Drop overly generic SQL/CN stop words so real table keywords dominate ranking
+    stop_ascii = {"select", "from", "where", "count", "limit", "order", "group", "table", "sql", "query", "data"}
+    ascii_tokens = [t for t in ascii_tokens if t not in stop_ascii]
+
+    candidates: list[tuple[int, str, str, list[str]]] = []
+    allowed_entries: list[tuple[str, str, list[str]]] = []
+    for entry in objects:
+        if not isinstance(entry, Mapping):
+            continue
+        owner = str(entry.get("owner") or "").strip()
+        name = str(entry.get("name") or "").strip()
+        if not owner or not name or owner.casefold() not in allowed_fold:
+            continue
+        fq = f"{owner}.{name}"
+        name_fold = name.casefold()
+        fq_fold = fq.casefold()
+        comment = str(entry.get("comment") or "").strip()
+        raw_cols = entry.get("columns") or ()
+        col_names: list[str] = []
+        col_search_blobs: list[str] = []
+        if isinstance(raw_cols, (list, tuple)):
+            for col in raw_cols[:24]:
+                if isinstance(col, Mapping):
+                    cname = str(col.get("name") or "").strip()
+                    ccomment = str(col.get("comment") or "").strip()
+                else:
+                    cname = str(col or "").strip()
+                    ccomment = ""
+                if cname:
+                    col_names.append(cname)
+                    col_search_blobs.append((cname.casefold(), ccomment))
+        allowed_entries.append((fq, comment, col_names))
+        score = 0
+        for tok in ascii_tokens:
+            if tok == name_fold or tok == fq_fold:
+                score += 100
+            elif name_fold.startswith(tok) or tok.startswith(name_fold):
+                score += 55
+            elif tok in name_fold:
+                score += 35
+            elif comment and tok in comment.casefold():
+                score += 20
+            else:
+                col_hits = sum(1 for cn, _cc in col_search_blobs if tok == cn or tok in cn)
+                if col_hits:
+                    score += min(20, col_hits * 8)
+        for tok in zh_tokens:
+            if comment and tok in comment:
+                score += 30
+            else:
+                col_hits = sum(1 for _cn, cc in col_search_blobs if cc and tok in cc)
+                if col_hits:
+                    score += min(18, col_hits * 6)
+        if score > 0:
+            candidates.append((score, fq, comment, col_names))
+
+    selected: list[tuple[str, str, list[str]]] = []
+    if candidates:
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        selected = [(fq, comment, cols) for _sc, fq, comment, cols in candidates[:max_tables]]
+    elif len(allowed_entries) <= 20:
+        selected = allowed_entries[:max_tables]
+    if not selected:
+        return ""
+
+    lines = [
+        "Local scanned schema candidates (strictly within the allowed schema; prefer exact schema-qualified names below and still verify data/counts with query_readonly):",
+    ]
+    total_len = len(lines[0])
+    for fq, comment, cols in selected:
+        head = f"- {fq}"
+        if comment:
+            head += f" ({comment[:40]})"
+        if cols:
+            col_preview = ", ".join(cols[:14])
+            if len(cols) > 14:
+                col_preview += f", … (+{len(cols) - 14})"
+            line = f"{head}: {col_preview}"
+        else:
+            line = head
+        if total_len + len(line) + 1 > max_chars:
+            break
+        lines.append(line)
+        total_len += len(line) + 1
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 class DataCenterAgentRuntime:
     """Compose one fixed model/connection/tool run without UI dependencies."""
 
@@ -1304,6 +1437,7 @@ class DataCenterAgentRuntime:
         event_sink: Callable[[Any], None] | None = None,
         system_prompt: str = "",
         draft: bool = False,
+        local_schema_snapshot: Mapping[str, Any] | None = None,
         runner_factory: Callable[..., AgentRunner] | None = None,
     ) -> None:
         if not isinstance(context, RunContext):
@@ -1327,6 +1461,7 @@ class DataCenterAgentRuntime:
         self._owned_nosql_router = False
         self._nosql_worker: _NoSQLWorker | None = None
         self._closed = False
+        self._local_schema_snapshot = local_schema_snapshot if isinstance(local_schema_snapshot, Mapping) else None
         self.projector = projector or ScopedResultProjector()
         self.query_owner_tracker = None if self.draft else QueryOwnerTracker()
 
@@ -1464,6 +1599,7 @@ class DataCenterAgentRuntime:
                 self.context,
             )
             runner_options["context_planner"] = self._evidence_planner
+        self._base_system_prompt = effective_system_prompt
         self.runner = runner_type(self.model_adapter, self.registry, **runner_options)
 
     def _build_model(self, *, model: Any, model_adapter: Any, model_host: Any, model_config_id: str | None, model_loader: Any, model_config: Any, transport: Any) -> Any:
@@ -1609,6 +1745,22 @@ class DataCenterAgentRuntime:
                 # Context recovery is optional. A broken evidence capability
                 # leaves the ordinary Stage A planner path available.
                 evidence_epoch = None
+        previous_system_prompt = getattr(self.runner, "system_prompt", None)
+        injected_schema_hint = False
+        if (
+            not self.draft
+            and self.provider in _RELATIONAL
+            and self._local_schema_snapshot is not None
+            and isinstance(previous_system_prompt, str)
+        ):
+            hint = _build_local_schema_hint(
+                self._local_schema_snapshot,
+                user_message,
+                tuple(self.context.schema_allowlist),
+            )
+            if hint:
+                self.runner.system_prompt = f"{self._base_system_prompt}\n\n{hint}".strip()
+                injected_schema_hint = True
         try:
             return self.runner.run(
                 self.context,
@@ -1620,6 +1772,8 @@ class DataCenterAgentRuntime:
                 on_event=on_event,
             )
         finally:
+            if injected_schema_hint:
+                self.runner.system_prompt = previous_system_prompt
             if evidence_planner is not None:
                 evidence_planner.clear_epoch(evidence_epoch)
             self.registry.release_run(self.context)

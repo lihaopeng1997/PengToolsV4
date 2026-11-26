@@ -1112,6 +1112,34 @@ class MetadataHost:
     ) -> ToolResult:
         self._worker_thread_id = threading.get_ident()
         ref = self._worker_objects.get(object_token)
+        if ref is None and self.target.provider in _RELATIONAL_PROVIDERS and self.target.schema_allowlist:
+            cleaned = str(object_token or "").strip().strip('"`[]')
+            if cleaned:
+                allowed_map = {s.casefold(): s for s in self.target.schema_allowlist}
+                schema_name = ""
+                table_name = ""
+                if "." in cleaned:
+                    part_schema, part_table = cleaned.rsplit(".", 1)
+                    matched = allowed_map.get(part_schema.strip().strip('"`[]').casefold())
+                    if matched and part_table.strip():
+                        schema_name = matched
+                        table_name = part_table.strip().strip('"`[]')
+                elif len(self.target.schema_allowlist) == 1:
+                    schema_name = self.target.schema_allowlist[0]
+                    table_name = cleaned
+                if schema_name and table_name:
+                    if self.target.provider in {"oracle", "oceanbase_oracle"}:
+                        table_name = table_name.upper()
+                    ref = _ObjectRef(
+                        self.target.provider,
+                        self.target.mode,
+                        self.target.database,
+                        schema_name,
+                        "table",
+                        table_name,
+                        self.target.scope_key,
+                    )
+                    self._worker_objects[object_token] = ref
         if ref is None or ref.target_key != self.target.scope_key:
             return _failure("SCOPE_DENIED", "object id is not bound to this target", scope=self.target.scope, query_id=query_id)
         state = self._read_cursor(page_token, "describe", (object_token, fields))
@@ -1143,7 +1171,13 @@ class MetadataHost:
                 schema_index = 0
         if schema_index < 0 or schema_index >= len(schemas):
             return _failure("STALE_CURSOR", "page cursor does not match this metadata target", scope=self.target.scope, query_id=query_id)
-        like_keyword = keyword.upper() if self.target.provider in {"oracle", "oceanbase_oracle"} else keyword
+        cleaned_kw = keyword.strip().strip('"`')
+        if "." in cleaned_kw:
+            prefix_part, table_part = cleaned_kw.rsplit(".", 1)
+            allowed_folded = {s.casefold() for s in schemas}
+            if prefix_part.strip().strip('"`').casefold() in allowed_folded and table_part.strip():
+                cleaned_kw = table_part.strip().strip('"`')
+        like_keyword = cleaned_kw.upper() if self.target.provider in {"oracle", "oceanbase_oracle"} else cleaned_kw
         kind_values = _catalog_kinds(self.target.provider, kinds)
         objects: list[dict[str, Any]] = []
         elapsed_ms = 0
@@ -1255,10 +1289,10 @@ class MetadataHost:
             from tools.agent_diag import log_agent_event
             log_agent_event('metadata_search_end', code=exc.code)
             return _failure(exc.code, exc.message, scope=self.target.scope, query_id=query_id)
-        except Exception:
+        except Exception as exc:
             from tools.agent_diag import log_agent_event
-            log_agent_event('metadata_search_end', code='QUERY_FAILED')
-            return _failure("QUERY_FAILED", "metadata search failed", scope=self.target.scope, query_id=query_id)
+            log_agent_event('metadata_search_end', code='QUERY_FAILED', error=type(exc).__name__)
+            return _failure("QUERY_FAILED", f"metadata search failed ({type(exc).__name__})", scope=self.target.scope, query_id=query_id)
         finally:
             _close_quietly(lease)
 

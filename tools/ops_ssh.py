@@ -10,6 +10,7 @@ import re
 import shlex
 import socket
 import stat as stat_mod
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -718,13 +719,9 @@ def extract_log_from_server(
     try:
         # 与会话连接共用：密码 / keyboard-interactive / 私钥（含密码被禁用时的自动回退）
         client = open_ssh_client(server, password_override=password_override, timeout_sec=timeout)
-        # 配置里常绑目录不带 .log：连上后解析为最新日志文件
-        try:
+        # 仅当路径不是明确日志文件时，才作为目录列取最新 .log，避免对 70MB+ 大文件做多余目录枚举
+        if not looks_like_remote_file_path(path):
             path = resolve_remote_log_file(client, path)
-        except OpsSshError:
-            # 若路径已是明确文件但 list 失败，仍尝试原路径
-            if not looks_like_remote_file_path(path):
-                raise
         local_path = os.path.join(
             target_dir,
             local_export_filename(
@@ -740,54 +737,12 @@ def extract_log_from_server(
         )
         # get_pty=False：二进制流更干净；超时靠 channel
         stdin, stdout, stderr = client.exec_command(remote_cmd, timeout=timeout)
-        channel = stdout.channel
-        channel.settimeout(timeout)
-        chunks: list[bytes] = []
-        total = 0
-        max_bytes = 80 * 1024 * 1024  # 单机 80MB 上限，防拖垮本机
-        while not channel.closed or channel.recv_ready():
-            if channel.recv_ready():
-                piece = channel.recv(65536)
-                if not piece:
-                    break
-                total += len(piece)
-                if total > max_bytes:
-                    chunks.append(b'\n...[truncated: output exceeded 80MB]...\n')
-                    break
-                chunks.append(piece)
-            elif channel.exit_status_ready():
-                break
-            else:
-                # 等一点数据
-                try:
-                    piece = channel.recv(65536)
-                    if not piece:
-                        if channel.exit_status_ready():
-                            break
-                        continue
-                    total += len(piece)
-                    if total > max_bytes:
-                        chunks.append(b'\n...[truncated: output exceeded 80MB]...\n')
-                        break
-                    chunks.append(piece)
-                except socket.timeout:
-                    if channel.exit_status_ready():
-                        break
-                    raise OpsSshError(f'读取超时（{timeout}s）')
-
-        exit_status = channel.recv_exit_status()
-        err_text = ''
         try:
-            err_text = stderr.read().decode('utf-8', errors='replace').strip()
+            stdin.close()
         except Exception:
-            err_text = ''
-
-        body = b''.join(chunks)
-        # grep 无命中通常 exit 1，仍算成功（0 行）
-        if exit_status not in (0, 1) and not body:
-            detail = err_text or f'远端退出码 {exit_status}'
-            raise OpsSshError(detail[:500])
-
+            pass
+        channel = stdout.channel
+        channel.settimeout(min(2.0, float(timeout)))
         header = (
             f'# PengTools log extract\n'
             f'# host={host} name={server.get("name")}\n'
@@ -801,20 +756,137 @@ def extract_log_from_server(
             f'# note=streamed via SSH stdout; no temp file on server\n'
             f'# ----\n'
         ).encode('utf-8')
-        # 统一转码为 UTF-8 落盘，避免 GBK 远端日志与 UTF-8 头混编乱码
-        try:
-            text = body.decode('utf-8')
-        except UnicodeDecodeError:
-            text = body.decode('gb18030', errors='replace')
-        body_utf8 = text.encode('utf-8')
+
+        import codecs
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='strict')
+        using_gbk = False
+        err_chunks: list[bytes] = []
+        err_total = 0
+        total = 0
+        line_count = 0
+        has_non_ws = False
+        truncated_cap = False
+        max_bytes = 64 * 1024 * 1024  # 单机 64MB 流式落盘上限，零内存堆积
+        idle_deadline = time.monotonic() + timeout
+
+        def _decode_piece(raw_bytes: bytes, final: bool = False) -> str:
+            nonlocal decoder, using_gbk
+            if not raw_bytes and not final:
+                return ''
+            if not using_gbk:
+                try:
+                    return decoder.decode(raw_bytes, final=final)
+                except UnicodeDecodeError:
+                    using_gbk = True
+                    decoder = codecs.getincrementaldecoder('gb18030')(errors='replace')
+                    return decoder.decode(raw_bytes, final=final)
+            return decoder.decode(raw_bytes, final=final)
+
         with open(local_path, 'wb') as stream:
             stream.write(header)
-            stream.write(body_utf8)
+            while True:
+                drained_any = False
+                while channel.recv_ready():
+                    piece = channel.recv(65536)
+                    if not piece:
+                        break
+                    drained_any = True
+                    idle_deadline = time.monotonic() + timeout
+                    total += len(piece)
+                    text_piece = _decode_piece(piece, final=False)
+                    if text_piece:
+                        line_count += text_piece.count('\n')
+                        if not has_non_ws and text_piece.strip():
+                            has_non_ws = True
+                        stream.write(text_piece.encode('utf-8'))
+                    if total >= max_bytes:
+                        truncated_cap = True
+                        stream.write(b'\n...[truncated: output exceeded 64MB]...\n')
+                        break
+                while channel.recv_stderr_ready():
+                    ep = channel.recv_stderr(65536)
+                    if not ep:
+                        break
+                    drained_any = True
+                    idle_deadline = time.monotonic() + timeout
+                    if err_total < 8192:
+                        err_chunks.append(ep[: 8192 - err_total])
+                        err_total += len(ep)
+                if truncated_cap:
+                    try:
+                        channel.close()
+                    except Exception:
+                        pass
+                    break
+                if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
+                    break
+                if channel.closed and not channel.recv_ready() and not channel.recv_stderr_ready():
+                    break
+                if not drained_any:
+                    if time.monotonic() >= idle_deadline:
+                        try:
+                            channel.close()
+                        except Exception:
+                            pass
+                        raise OpsSshError(f'读取超时（{timeout}s）')
+                    try:
+                        piece = channel.recv(65536)
+                        if piece:
+                            idle_deadline = time.monotonic() + timeout
+                            total += len(piece)
+                            text_piece = _decode_piece(piece, final=False)
+                            if text_piece:
+                                line_count += text_piece.count('\n')
+                                if not has_non_ws and text_piece.strip():
+                                    has_non_ws = True
+                                stream.write(text_piece.encode('utf-8'))
+                            if total >= max_bytes:
+                                truncated_cap = True
+                                stream.write(b'\n...[truncated: output exceeded 64MB]...\n')
+                                try:
+                                    channel.close()
+                                except Exception:
+                                    pass
+                                break
+                        elif channel.closed or channel.exit_status_ready():
+                            break
+                    except socket.timeout:
+                        if channel.exit_status_ready() or channel.closed:
+                            break
+                        if time.monotonic() >= idle_deadline:
+                            try:
+                                channel.close()
+                            except Exception:
+                                pass
+                            raise OpsSshError(f'读取超时（{timeout}s）')
+            tail_text = _decode_piece(b'', final=True)
+            if tail_text:
+                line_count += tail_text.count('\n')
+                if not has_non_ws and tail_text.strip():
+                    has_non_ws = True
+                stream.write(tail_text.encode('utf-8'))
 
-        # 粗略统计命中行（含上下文时仅作参考）
-        line_count = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
-        if not text.strip():
+        exit_status = 0
+        if not truncated_cap and channel.exit_status_ready():
+            try:
+                exit_status = channel.recv_exit_status()
+            except Exception:
+                exit_status = 0
+        err_text = b''.join(err_chunks).decode('utf-8', errors='replace').strip()
+
+        if not has_non_ws:
             line_count = 0
+        elif line_count == 0:
+            line_count = 1
+        # grep 无命中通常 exit 1，仍算成功（0 行）
+        if exit_status not in (0, 1) and total == 0:
+            try:
+                if os.path.isfile(local_path):
+                    os.remove(local_path)
+            except OSError:
+                pass
+            detail = err_text or f'远端退出码 {exit_status}'
+            raise OpsSshError(detail[:500])
 
         return {
             'ok': True,
@@ -826,7 +898,7 @@ def extract_log_from_server(
             'host': host,
             'local_path': local_path,
             'line_count': line_count,
-            'bytes': len(body),
+            'bytes': total,
             'exit_status': exit_status,
             'message': '无命中' if line_count == 0 else f'已导出 {line_count} 行',
             'stderr': err_text[:300] if err_text else '',

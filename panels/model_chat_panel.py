@@ -360,6 +360,7 @@ class ModelChatPanel(QWidget):
 
         right_l.addWidget(top_chat_widget, 1)
 
+        from ui.chat_kit.composer import ModelPillButton
         self.composer = Composer()
         self.composer_card = self.composer
         self.input = self.composer.input
@@ -376,8 +377,13 @@ class ModelChatPanel(QWidget):
         self.clear_attach_action.triggered.connect(self._clear_attachments)
         self.composer.menu.addSeparator()
         self.skill_action = self.composer.menu.addAction('Skill 管理…', self._open_skill_manager)
-        self.composer.insert_footer_widget(1, self.model_combo, 0)
-        self.composer.insert_footer_widget(2, self.ping_btn, 0)
+        self.ping_btn.hide()
+        self.model_pill = ModelPillButton(
+            self.model_combo,
+            self.composer,
+            extra_menu_builder=self._populate_model_popup_extras,
+        )
+        self.composer.insert_footer_widget(1, self.model_pill, 0)
         self.composer.send_requested.connect(self._on_action_clicked)
         self.composer.stop_requested.connect(self._stop)
         self.composer.regenerate_requested.connect(self._regenerate)
@@ -398,6 +404,13 @@ class ModelChatPanel(QWidget):
             accessible_name='模型对话左右分隔',
         )
         root.addWidget(split, 1)
+
+    def _populate_model_popup_extras(self, menu: QMenu):
+        menu.addSeparator()
+        zh = self.language == 'zh'
+        ping_act = menu.addAction('⚡ 测试当前模型连通性' if zh else '⚡ Test model connectivity')
+        ping_act.setEnabled(self.model_combo.count() > 0)
+        ping_act.triggered.connect(self._ping_current)
 
     def set_language(self, language):
         self.language = language

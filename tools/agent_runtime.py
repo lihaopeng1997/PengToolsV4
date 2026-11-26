@@ -165,22 +165,38 @@ def _replace_in_source_text(source: str, old_str: str, new_str: str, newline: st
 TOOL_SCHEMAS = [
     {
         'name': 'list_dir',
-        'description': '列目录内容（只读，仅返回文件名/目录名，不读文件内容）',
+        'description': '列目录内容（只读，仅返回文件名/目录名，不读文件内容）。省略 path 或传空字符串列出已绑定的工作区根目录；可设 max_depth=2~3 一次展开多级子目录。',
         'parameters': {
             'type': 'object',
             'properties': {
-                'path': {'type': 'string', 'description': '目录相对路径或空字符串（工作文件夹根）'},
+                'path': {'type': 'string', 'description': '目录相对路径；可省略或传 "" / "." 表示已绑定的工作区根目录'},
+                'max_depth': {'type': 'integer', 'minimum': 1, 'maximum': 3, 'description': '递归深度，默认 1，最大 3'},
             },
-            'required': ['path'],
+            'required': [],
+        },
+    },
+    {
+        'name': 'find_files',
+        'description': '按文件名关键字或 glob 通配符在工作区内递归查找文件（如 *Controller*.java、pom.xml、*.vue），只返回工作区相对路径列表。',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'pattern': {'type': 'string', 'description': '文件名关键字或通配符，如 *Service*.java、*.py'},
+                'path': {'type': 'string', 'description': '限定搜索的子目录相对路径（可选，默认整个工作区）'},
+                'max_results': {'type': 'integer', 'minimum': 1, 'maximum': 100, 'description': '最多返回条数，默认 60'},
+            },
+            'required': ['pattern'],
         },
     },
     {
         'name': 'read_file',
-        'description': '分段读取工作区文本文件。默认最多 12000 个字符；用 start_offset 和 char_count 连续读取后续段。',
+        'description': '读取工作区文本文件。支持按行号范围（start_line/end_line，带行号输出）或按字符偏移（start_offset/char_count，默认最多 12000 字符）分段读取。',
         'parameters': {
             'type': 'object',
             'properties': {
                 'path': {'type': 'string', 'description': '文件相对路径'},
+                'start_line': {'type': 'integer', 'minimum': 1, 'description': '起始行号（从 1 开始，与 end_line 配合按行精准读取）'},
+                'end_line': {'type': 'integer', 'minimum': 1, 'description': '结束行号（含该行，配合 start_line 使用）'},
                 'start_offset': {'type': 'integer', 'minimum': 0, 'description': '从文件字符偏移开始，默认 0'},
                 'char_count': {'type': 'integer', 'minimum': 1, 'maximum': MAX_READ_FILE_CHARS, 'description': '最多读取字符数，最大 12000'},
             },
@@ -314,8 +330,37 @@ def _is_within_workspace(resolved: str, workspace_dir: str) -> bool:
     return common == real_root
 
 
+def _normalize_workspace_relative_path(relative_path: str, workspace_dir: str, *, allow_root_slash: bool = False) -> str:
+    """Normalize harmless model path prefixes (./, leading workspace folder name) without weakening containment."""
+    raw = str(relative_path or '').strip()
+    if not raw:
+        return ''
+    if allow_root_slash and raw in {'/', '\\', '.', './', '.\\'}:
+        return '.'
+    # Strip redundant leading ./ or .\
+    while raw.startswith('./') or raw.startswith('.\\'):
+        raw = raw[2:]
+    if not raw:
+        return '.' if allow_root_slash else ''
+    # If the model prefixed the bound workspace folder name (e.g. "backend-car/src/..."
+    # when workspace_dir is ".../backend-car"), strip that redundant prefix only when
+    # no real child directory with that same name exists inside workspace_dir.
+    root_name = os.path.basename(os.path.normpath(workspace_dir or ''))
+    if root_name:
+        norm_raw = raw.replace('\\', '/')
+        if norm_raw == root_name and allow_root_slash and not os.path.exists(os.path.join(workspace_dir, root_name)):
+            return '.'
+        prefix = root_name + '/'
+        if norm_raw.startswith(prefix) and not os.path.exists(os.path.join(workspace_dir, root_name)):
+            stripped = norm_raw[len(prefix):]
+            if stripped:
+                return stripped
+    return raw
+
+
 def validate_path(relative_path: str, workspace_dir: str) -> tuple[bool, str, str]:
     """校验相对路径不越界。返回 (ok, resolved_path, error_msg)。"""
+    relative_path = _normalize_workspace_relative_path(relative_path, workspace_dir)
     if not relative_path:
         return False, '', '路径不能为空'
 
@@ -339,9 +384,13 @@ def validate_path(relative_path: str, workspace_dir: str) -> tuple[bool, str, st
 
 # ─── 工具实现 ────────────────────────────────────────────────────────────────
 
-def _list_dir_impl(relative_path: str, workspace_dir: str) -> dict:
-    # 空路径 → 工作文件夹根
-    path_arg = relative_path if relative_path else '.'
+_MAX_LIST_DIR_ENTRIES = 120
+
+
+def _list_dir_impl(relative_path: str, workspace_dir: str, max_depth: int = 1) -> dict:
+    # 空路径 / "/" / "." → 工作文件夹根
+    normalized = _normalize_workspace_relative_path(relative_path, workspace_dir, allow_root_slash=True)
+    path_arg = normalized if normalized else '.'
     ok, resolved, err = validate_path(path_arg, workspace_dir)
     if not ok:
         return {'ok': False, 'error': err}
@@ -350,25 +399,137 @@ def _list_dir_impl(relative_path: str, workspace_dir: str) -> dict:
         return {'ok': False, 'error': f'不是目录: {relative_path}'}
 
     try:
-        entries = os.listdir(resolved)
-    except OSError as e:
-        return {'ok': False, 'error': f'无法列目录: {e}'}
+        depth_limit = max(1, min(3, int(max_depth)))
+    except (TypeError, ValueError):
+        depth_limit = 1
+
+    if depth_limit == 1:
+        try:
+            entries = os.listdir(resolved)
+        except OSError as e:
+            return {'ok': False, 'error': f'无法列目录: {e}'}
+
+        result = []
+        for name in sorted(entries):
+            if name in IGNORED_DIR_NAMES or name.startswith('.'):
+                continue
+            full = os.path.join(resolved, name)
+            safe, _, _ = validate_path(os.path.relpath(full, workspace_dir), workspace_dir)
+            if not safe:
+                continue
+            is_dir = os.path.isdir(full)
+            ext = os.path.splitext(name)[1].lower()
+            # 非白名单扩展名且非目录则跳过
+            if not is_dir and ext not in WHITELIST_EXTENSIONS:
+                continue
+            result.append({'name': name, 'type': 'dir' if is_dir else 'file'})
+        return {'ok': True, 'entries': result}
 
     result = []
-    for name in sorted(entries):
-        if name in IGNORED_DIR_NAMES or name.startswith('.'):
-            continue
-        full = os.path.join(resolved, name)
-        safe, _, _ = validate_path(os.path.relpath(full, workspace_dir), workspace_dir)
-        if not safe:
-            continue
-        is_dir = os.path.isdir(full)
-        ext = os.path.splitext(name)[1].lower()
-        # 非白名单扩展名且非目录则跳过
-        if not is_dir and ext not in WHITELIST_EXTENSIONS:
-            continue
-        result.append({'name': name, 'type': 'dir' if is_dir else 'file'})
-    return {'ok': True, 'entries': result}
+    truncated = False
+
+    def _walk(cur_dir: str, depth: int) -> None:
+        nonlocal truncated
+        if truncated or depth > depth_limit:
+            return
+        try:
+            names = sorted(os.listdir(cur_dir))
+        except OSError:
+            return
+        for name in names:
+            if name in IGNORED_DIR_NAMES or name.startswith('.'):
+                continue
+            full = os.path.join(cur_dir, name)
+            rel_from_ws = os.path.relpath(full, workspace_dir)
+            safe, _, _ = validate_path(rel_from_ws, workspace_dir)
+            if not safe:
+                continue
+            is_dir = os.path.isdir(full)
+            ext = os.path.splitext(name)[1].lower()
+            if not is_dir and ext not in WHITELIST_EXTENSIONS:
+                continue
+            if len(result) >= _MAX_LIST_DIR_ENTRIES:
+                truncated = True
+                return
+            result.append({
+                'name': rel_from_ws.replace('\\', '/'),
+                'type': 'dir' if is_dir else 'file',
+            })
+            if is_dir and depth < depth_limit:
+                _walk(full, depth + 1)
+                if truncated:
+                    return
+
+    _walk(resolved, 1)
+    return {'ok': True, 'entries': result, 'truncated': truncated}
+
+
+def _find_files_impl(
+    pattern: str,
+    workspace_dir: str,
+    relative_path: str = '',
+    max_results: int = 60,
+) -> dict:
+    """按文件名关键字或 glob 通配符在工作区内递归查找受控文本/代码文件。"""
+    import fnmatch
+
+    raw_pattern = str(pattern or '').strip()
+    if not raw_pattern:
+        return {'ok': False, 'error': '查找模式 pattern 不能为空'}
+    normalized = _normalize_workspace_relative_path(relative_path, workspace_dir, allow_root_slash=True)
+    path_arg = normalized if normalized else '.'
+    ok, resolved, err = validate_path(path_arg, workspace_dir)
+    if not ok:
+        return {'ok': False, 'error': err}
+    if not os.path.isdir(resolved):
+        return {'ok': False, 'error': f'不是目录: {relative_path}'}
+
+    try:
+        limit = max(1, min(100, int(max_results)))
+    except (TypeError, ValueError):
+        limit = 60
+
+    pat_lower = raw_pattern.replace('\\', '/').lower()
+    has_glob = any(ch in pat_lower for ch in ('*', '?', '['))
+    matches: list[str] = []
+    truncated = False
+    try:
+        for root, dirs, files in os.walk(resolved):
+            dirs[:] = sorted(d for d in dirs if not d.startswith('.') and d not in IGNORED_DIR_NAMES)
+            for fname in sorted(files):
+                if fname.startswith('.'):
+                    continue
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in WHITELIST_EXTENSIONS:
+                    continue
+                full = os.path.join(root, fname)
+                rel = os.path.relpath(full, workspace_dir)
+                safe, _, _ = validate_path(rel, workspace_dir)
+                if not safe:
+                    continue
+                rel_posix = rel.replace('\\', '/')
+                fname_lower = fname.lower()
+                rel_lower = rel_posix.lower()
+                matched = (
+                    fnmatch.fnmatch(fname_lower, pat_lower) or fnmatch.fnmatch(rel_lower, pat_lower)
+                    if has_glob else
+                    (pat_lower in fname_lower or pat_lower in rel_lower)
+                )
+                if matched:
+                    if len(matches) >= limit:
+                        truncated = True
+                        break
+                    matches.append(rel_posix)
+            if truncated:
+                break
+    except OSError as exc:
+        return {'ok': False, 'error': f'查找文件失败: {exc}'}
+    return {
+        'ok': True,
+        'matches': matches,
+        'data': matches,
+        'truncated': truncated,
+    }
 
 
 def _read_complete_file_impl(relative_path: str, workspace_dir: str) -> dict:
@@ -433,8 +594,10 @@ def _read_file_impl(
     workspace_dir: str,
     start_offset: int = 0,
     char_count: int = MAX_READ_FILE_CHARS,
+    start_line: int | None = None,
+    end_line: int | None = None,
 ) -> dict:
-    """Read a bounded, resumable character slice; the original two arguments remain valid."""
+    """Read a bounded, resumable character slice or 1-based line range."""
     try:
         offset = max(0, int(start_offset))
         requested = int(char_count)
@@ -443,10 +606,21 @@ def _read_file_impl(
     if requested < 1:
         return {'ok': False, 'error': 'char_count 必须大于 0'}
     limit = min(requested, MAX_READ_FILE_CHARS)
+    use_lines = start_line is not None or end_line is not None
+    if use_lines:
+        try:
+            s_line = 1 if start_line is None else int(start_line)
+            e_line = None if end_line is None else int(end_line)
+        except (TypeError, ValueError, OverflowError):
+            return {'ok': False, 'error': 'start_line/end_line 参数无效'}
+        if s_line < 1:
+            return {'ok': False, 'error': 'start_line 必须大于等于 1'}
+        if e_line is not None and e_line < s_line:
+            return {'ok': False, 'error': 'end_line 不能小于 start_line'}
     from tools.agent_diag import log_agent_event
     import time as _time
     started = _time.perf_counter()
-    log_agent_event('read_file_start', offset=offset, char_count=limit)
+    log_agent_event('read_file_start', offset=offset, char_count=limit, start_line=start_line, end_line=end_line)
     full = _read_complete_file_impl(relative_path, workspace_dir)
     log_agent_event(
         'read_file_end',
@@ -457,19 +631,69 @@ def _read_file_impl(
     if not full.get('ok'):
         return full
     content = str(full.get('content') or '')
+    all_lines = content.splitlines()
+    total_lines = len(all_lines)
+    public_full = {key: value for key, value in full.items()
+                   if key not in {'encoding', 'newline', '_source_text'}}
+
+    if use_lines:
+        if total_lines == 0:
+            return {
+                **public_full,
+                'content': '',
+                'data': '',
+                'start_line': 1,
+                'end_line': 0,
+                'total_lines': 0,
+                'truncated': False,
+                'next_line': None,
+            }
+        if s_line > total_lines:
+            return {
+                'ok': False,
+                'error': f'start_line ({s_line}) 超过文件总行数 ({total_lines})',
+                'total_lines': total_lines,
+            }
+        target_end = min(total_lines, e_line if e_line is not None else total_lines)
+        numbered: list[str] = []
+        acc_chars = 0
+        last_line = s_line - 1
+        hit_char_cap = False
+        for lineno in range(s_line, target_end + 1):
+            formatted = f'{lineno}: {all_lines[lineno - 1]}'
+            added_len = len(formatted) + (1 if numbered else 0)
+            if numbered and acc_chars + added_len > limit:
+                hit_char_cap = True
+                break
+            numbered.append(formatted)
+            acc_chars += added_len
+            last_line = lineno
+        page = '\n'.join(numbered)
+        truncated = hit_char_cap or last_line < total_lines
+        return {
+            **public_full,
+            'content': page,
+            'data': page,
+            'start_line': s_line,
+            'end_line': last_line,
+            'total_lines': total_lines,
+            'char_count': len(page),
+            'truncated': truncated,
+            'next_line': (last_line + 1) if last_line < total_lines else None,
+        }
+
     if offset > len(content):
         return {'ok': False, 'error': 'start_offset 超过文件长度', 'total_chars': len(content)}
     end = min(len(content), offset + limit)
     page = content[offset:end]
     truncated = end < len(content)
-    public_full = {key: value for key, value in full.items()
-                   if key not in {'encoding', 'newline', '_source_text'}}
     return {
         **public_full,
         'content': page,
         'data': page,
         'start_offset': offset,
         'char_count': len(page),
+        'total_lines': total_lines,
         'truncated': truncated,
         'next_offset': end if truncated else None,
     }
@@ -1123,13 +1347,22 @@ def execute_tool(
     if cancel_cb and cancel_cb():
         return {'ok': False, 'error': '任务已取消'}
     if tool == 'list_dir':
-        return _list_dir_impl(args.get('path', ''), workspace_dir)
+        return _list_dir_impl(args.get('path', ''), workspace_dir, args.get('max_depth', 1))
+    elif tool == 'find_files':
+        return _find_files_impl(
+            args.get('pattern', ''),
+            workspace_dir,
+            args.get('path', ''),
+            args.get('max_results', 60),
+        )
     elif tool == 'read_file':
         return _read_file_impl(
             args.get('path', ''),
             workspace_dir,
             args.get('start_offset', 0),
             args.get('char_count', MAX_READ_FILE_CHARS),
+            start_line=args.get('start_line'),
+            end_line=args.get('end_line'),
         )
     elif tool == 'search_code':
         return _search_code_impl(
@@ -1524,8 +1757,28 @@ def build_tool_system_prompt(
             '<tool_call><function=工具名><parameter=参数名>参数值</parameter></function></tool_call>，'
             '应用会执行。不要输出未闭合标签，也不要在没看到工具结果时声称已经读过文件。'
         )
+    workspace_hint = ''
+    if workspace_dir and os.path.isdir(workspace_dir):
+        folder_name = os.path.basename(os.path.normpath(workspace_dir)) or workspace_dir
+        top_listing = _list_dir_impl('', workspace_dir)
+        top_entries = top_listing.get('entries') if top_listing.get('ok') else []
+        if top_entries:
+            preview = ', '.join(
+                f"{item['name']}/" if item.get('type') == 'dir' else str(item.get('name') or '')
+                for item in top_entries[:30]
+            )
+            more = f'（共 {len(top_entries)} 项）' if len(top_entries) > 30 else ''
+            workspace_hint = (
+                f'当前已绑定项目文件夹：「{folder_name}」；根目录已有内容：{preview}{more}。\n'
+                '直接基于工作区相对路径调用 list_dir(path="", max_depth=2) / find_files(pattern="...") / search_code / read_file(path="...", start_line=1, end_line=120) 即可，无需向用户索要绝对路径，也不要在路径前重复拼接根目录名。\n'
+            )
+        else:
+            workspace_hint = (
+                f'当前已绑定项目文件夹：「{folder_name}」。直接调用 list_dir(path="") 查看根目录内容，无需向用户索要路径。\n'
+            )
     return (
         '你是编程 Agent。应用已绑定当前工作区；你不能选择工作区或访问其他连接。\n'
+        f'{workspace_hint}'
         f'可用的受控工具定义：\n{schemas_json}\n'
         f'协议：{protocol}\n'
         '所有路径相对于应用绑定的工作区根目录；禁止绝对路径及越界访问。\n'
@@ -1569,39 +1822,135 @@ class ProgrammingToolRegistry:
             },
         } for schema in TOOL_SCHEMAS)
 
-    def _validate_arguments(self, name: str, arguments: dict) -> str | None:
+    def _normalize_arguments(self, name: str, raw_args: dict) -> dict:
+        """Normalize common harmless parameter aliases and numeric strings from intranet models."""
+        if not isinstance(raw_args, dict):
+            return {}
+        args = dict(raw_args)
+        if name == 'list_dir':
+            if 'path' not in args:
+                for alias in ('dir', 'directory', 'folder', 'dir_path', 'target', 'file_path'):
+                    if alias in args and isinstance(args[alias], str):
+                        args['path'] = args.pop(alias)
+                        break
+            if 'max_depth' not in args and 'depth' in args:
+                args['max_depth'] = args.pop('depth')
+            val = args.get('max_depth')
+            if isinstance(val, str) and val.strip().isdigit():
+                args['max_depth'] = int(val.strip())
+            if isinstance(args.get('max_depth'), int) and not isinstance(args.get('max_depth'), bool):
+                args['max_depth'] = max(1, min(3, args['max_depth']))
+            for benign in ('dir', 'directory', 'folder', 'dir_path', 'target', 'file_path', 'recursive', 'depth'):
+                args.pop(benign, None)
+            args.setdefault('path', '')
+        elif name == 'find_files':
+            if 'pattern' not in args:
+                for alias in ('query', 'keyword', 'name', 'glob', 'filename', 'file_pattern'):
+                    if alias in args and isinstance(args[alias], str):
+                        args['pattern'] = args.pop(alias)
+                        break
+            if 'path' not in args:
+                for alias in ('dir', 'directory', 'folder', 'dir_path', 'root'):
+                    if alias in args and isinstance(args[alias], str):
+                        args['path'] = args.pop(alias)
+                        break
+            if 'max_results' not in args and 'limit' in args:
+                args['max_results'] = args.pop('limit')
+            val = args.get('max_results')
+            if isinstance(val, str) and val.strip().isdigit():
+                args['max_results'] = int(val.strip())
+            if isinstance(args.get('max_results'), int) and not isinstance(args.get('max_results'), bool):
+                args['max_results'] = max(1, min(100, args['max_results']))
+            for benign in ('query', 'keyword', 'name', 'glob', 'filename', 'file_pattern', 'dir', 'directory', 'folder', 'dir_path', 'root', 'limit'):
+                args.pop(benign, None)
+        elif name in ('read_file', 'write_file', 'edit_file', 'delete_file', 'read_image'):
+            if 'path' not in args:
+                for alias in ('file_path', 'filepath', 'filename', 'file', 'target_file'):
+                    if alias in args and isinstance(args[alias], str):
+                        args['path'] = args.pop(alias)
+                        break
+            for alias in ('file_path', 'filepath', 'filename', 'file', 'target_file'):
+                args.pop(alias, None)
+            if name == 'read_file':
+                if 'start_line' not in args:
+                    for alias in ('from_line', 'line_start', 'begin_line'):
+                        if alias in args:
+                            args['start_line'] = args.pop(alias)
+                            break
+                if 'end_line' not in args:
+                    for alias in ('to_line', 'line_end'):
+                        if alias in args:
+                            args['end_line'] = args.pop(alias)
+                            break
+                for int_key in ('start_offset', 'char_count', 'start_line', 'end_line'):
+                    val = args.get(int_key)
+                    if isinstance(val, str) and val.strip().isdigit():
+                        args[int_key] = int(val.strip())
+                if isinstance(args.get('char_count'), int) and not isinstance(args.get('char_count'), bool):
+                    args['char_count'] = max(1, min(MAX_READ_FILE_CHARS, args['char_count']))
+                for benign in ('encoding', 'max_lines', 'limit', 'offset', 'from_line', 'line_start', 'begin_line', 'to_line', 'line_end'):
+                    args.pop(benign, None)
+            elif name == 'edit_file':
+                if 'old_str' not in args:
+                    for alias in ('old_string', 'old_text', 'search', 'target'):
+                        if alias in args and isinstance(args[alias], str):
+                            args['old_str'] = args.pop(alias)
+                            break
+                if 'new_str' not in args:
+                    for alias in ('new_string', 'new_text', 'replace', 'replacement'):
+                        if alias in args and isinstance(args[alias], str):
+                            args['new_str'] = args.pop(alias)
+                            break
+        elif name == 'search_code':
+            if 'pattern' not in args:
+                for alias in ('query', 'keyword', 'regex', 'text', 'search'):
+                    if alias in args and isinstance(args[alias], str):
+                        args['pattern'] = args.pop(alias)
+                        break
+            if 'file_pattern' not in args:
+                for alias in ('glob', 'include', 'ext', 'file_glob'):
+                    if alias in args and isinstance(args[alias], str):
+                        args['file_pattern'] = args.pop(alias)
+                        break
+            for benign in ('query', 'keyword', 'regex', 'text', 'search', 'glob', 'include', 'ext', 'file_glob', 'path', 'dir', 'limit', 'max_results'):
+                args.pop(benign, None)
+        return args
+
+    def _validate_arguments(self, name: str, arguments: dict) -> tuple[str | None, str]:
         schema = self._schemas.get(name)
         if schema is None:
-            return 'UNKNOWN_TOOL'
+            return 'UNKNOWN_TOOL', f'未知工具：{name}'
         parameters = schema.get('parameters') or {}
         properties = parameters.get('properties') or {}
         if not isinstance(arguments, dict):
-            return 'INVALID_TOOL_ARGUMENTS'
-        if set(arguments) - set(properties):
-            return 'INVALID_TOOL_ARGUMENTS'
-        if set(parameters.get('required') or ()) - set(arguments):
-            return 'INVALID_TOOL_ARGUMENTS'
+            return 'INVALID_TOOL_ARGUMENTS', f'{name} 参数必须是 JSON 对象'
+        extra = set(arguments) - set(properties)
+        if extra:
+            return 'INVALID_TOOL_ARGUMENTS', f'{name} 包含不支持的参数：{", ".join(sorted(extra))}；仅支持 {", ".join(sorted(properties))}'
+        missing = set(parameters.get('required') or ()) - set(arguments)
+        if missing:
+            return 'INVALID_TOOL_ARGUMENTS', f'{name} 缺少必填参数：{", ".join(sorted(missing))}'
         for key, value in arguments.items():
             kind = str(properties[key].get('type') or 'string')
             if kind == 'string' and not isinstance(value, str):
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 必须是字符串'
             if kind == 'integer' and (not isinstance(value, int) or isinstance(value, bool)):
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 必须是整数'
             if kind == 'number' and (not isinstance(value, (int, float)) or isinstance(value, bool)):
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 必须是数字'
             if kind == 'boolean' and not isinstance(value, bool):
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 必须是布尔值'
             if kind == 'array' and not isinstance(value, list):
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 必须是数组'
             if kind == 'object' and not isinstance(value, dict):
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 必须是对象'
             minimum = properties[key].get('minimum')
             maximum = properties[key].get('maximum')
             if minimum is not None and value < minimum:
-                return 'INVALID_TOOL_ARGUMENTS'
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 不能小于 {minimum}'
             if maximum is not None and value > maximum:
-                return 'INVALID_TOOL_ARGUMENTS'
-        return None
+                return 'INVALID_TOOL_ARGUMENTS', f'{name}.{key} 不能大于 {maximum}'
+        return None, ''
 
     def execute(self, call, *, context, cancellation):
         from tools.agent_core import ToolResult
@@ -1612,10 +1961,10 @@ class ProgrammingToolRegistry:
             return ToolResult(ok=False, code='POLICY_DENIED', data='当前模型配置未启用编程工具')
         if str(getattr(context, 'domain', 'programming')) != 'programming':
             return ToolResult(ok=False, code='POLICY_DENIED', data='工具域不匹配')
-        args = dict(call.arguments)
-        argument_error = self._validate_arguments(call.name, args)
+        args = self._normalize_arguments(call.name, dict(call.arguments))
+        argument_error, error_detail = self._validate_arguments(call.name, args)
         if argument_error:
-            return ToolResult(ok=False, code=argument_error, data=argument_error)
+            return ToolResult(ok=False, code=argument_error, data={'ok': False, 'tool': call.name, 'error': error_detail})
         try:
             result = execute_tool(
                 call.name,
@@ -1646,8 +1995,12 @@ class ProgrammingToolRegistry:
             'start_offset': result.get('start_offset'),
             'char_count': result.get('char_count'),
             'total_chars': result.get('total_chars'),
+            'start_line': result.get('start_line'),
+            'end_line': result.get('end_line'),
+            'total_lines': result.get('total_lines'),
             'truncated': result.get('truncated'),
             'next_offset': result.get('next_offset'),
+            'next_line': result.get('next_line'),
         }
         # Redact values before JSON serialization. Redacting the serialized
         # envelope can consume its closing quote/braces and escaped newlines,
@@ -1858,7 +2211,7 @@ def recover_text_tool_calls(text: str) -> list[dict]:
         # Bare JSON can be an example in a normal answer. Only harmless reads
         # use this legacy fallback; mutations require native calls or explicit
         # tool markup, and still go through the normal preview/confirmation.
-        if accepted['tool'] not in {'list_dir', 'read_file', 'search_code', 'read_image'}:
+        if accepted['tool'] not in {'list_dir', 'find_files', 'read_file', 'search_code', 'read_image'}:
             return []
         calls.append(accepted)
     return calls
@@ -2310,7 +2663,7 @@ def run_agent_loop(
             ),
             cancellation=token,
             on_event=dispatch_event,
-            is_repeatable_tool=lambda call: call.name in {'list_dir', 'read_file', 'search_code', 'read_image'},
+            is_repeatable_tool=lambda call: call.name in {'list_dir', 'find_files', 'read_file', 'search_code', 'read_image'},
             authorize_tool_batch=authorize_batch,
             context_planner=context_planner,
         )

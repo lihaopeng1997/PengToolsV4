@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import re
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QTextDocument, QTextOption
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
@@ -14,7 +14,16 @@ from PyQt6.QtWidgets import (
 )
 
 _CODE_LIMIT = 420
-_HEADER = 36
+_HEADER = 30
+
+_MARKDOWN_CSS = (
+    'p { margin-top: 0px; margin-bottom: 4px; }'
+    'p:last-child { margin-bottom: 0px; }'
+    'ul, ol { margin-top: 2px; margin-bottom: 4px; }'
+    'li { margin-bottom: 1px; }'
+    'h1, h2, h3, h4 { margin-top: 6px; margin-bottom: 3px; }'
+    'pre, blockquote { margin-top: 3px; margin-bottom: 4px; }'
+)
 
 # 保护裸露 SQL 中的 COUNT(*) / SUM(*) / SELECT * FROM 等星号，避免被 CommonMark 误解析为斜体
 _INLINE_CODE_RE = re.compile(r'(`+[^`]*`+)')
@@ -55,15 +64,20 @@ class _FittingBrowser(QTextBrowser):
         option = QTextOption()
         option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(option)
-        self.document().setDocumentMargin(2)
+        self.document().setDocumentMargin(1)
+        self.document().setDefaultStyleSheet(_MARKDOWN_CSS)
         self.setMinimumWidth(0)
         font = QFont()
         font.setFamilies(['Microsoft YaHei UI', 'Segoe UI', 'sans-serif'])
-        font.setPixelSize(14)
+        font.setPixelSize(13)
         self.setFont(font)
         self.document().setDefaultFont(font)
-        self._fitted_height = 26
+        self._fitted_height = 22
         self._last_fit_width = 0
+        self._natural_width = 80
+
+    def natural_width(self) -> int:
+        return self._natural_width
 
     def set_markdown(self, text: str, width: int) -> None:
         features = (
@@ -72,6 +86,24 @@ class _FittingBrowser(QTextBrowser):
         )
         safe = _protect_sql_stars(text)
         self.document().setMarkdown(safe, features)
+        self.document().setDefaultStyleSheet(_MARKDOWN_CSS)
+        # Strip trailing paragraph bottom margin on the very last block so there is no phantom whitespace
+        last_blk = self.document().lastBlock()
+        if last_blk.isValid():
+            bf = last_blk.blockFormat()
+            if bf.bottomMargin() > 0:
+                cur = self.textCursor()
+                cur.setPosition(last_blk.position())
+                bf.setBottomMargin(0)
+                cur.setBlockFormat(bf)
+        option = self.document().defaultTextOption()
+        option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(option)
+        self._fit(width)
+
+    def set_plain(self, text: str, width: int) -> None:
+        self.document().setPlainText(str(text or ''))
+        self.document().setDefaultStyleSheet(_MARKDOWN_CSS)
         option = self.document().defaultTextOption()
         option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(option)
@@ -88,29 +120,26 @@ class _FittingBrowser(QTextBrowser):
     def _fit(self, width: int) -> None:
         cm = self.contentsMargins()
         frame = self.frameWidth()
-        vp_w = self.viewport().width() if self.isVisible() and self.viewport().width() > 40 else 0
-        avail = vp_w if vp_w > 40 else max(40, int(width) - cm.left() - cm.right() - frame * 2 - 4)
-        inner = max(40, avail)
-        self._last_fit_width = inner
-        self.document().setTextWidth(inner)
-        doc_h = math.ceil(self.document().size().height())
-        line_h = max(22, self.fontMetrics().lineSpacing())
-        height = max(line_h + 8, doc_h + cm.top() + cm.bottom() + frame * 2 + 12)
+        pad_x = cm.left() + cm.right() + frame * 2
+        doc = self.document()
+        doc.setTextWidth(-1)
+        ideal = math.ceil(doc.idealWidth())
+        self._natural_width = max(48, ideal + pad_x + 8)
+        avail = max(80, int(width) - pad_x)
+        self._last_fit_width = avail
+        doc.setTextWidth(avail)
+        doc_h = math.ceil(doc.size().height())
+        line_h = max(20, self.fontMetrics().lineSpacing())
+        height = max(line_h + 4, doc_h + cm.top() + cm.bottom() + frame * 2 + 4)
         self._fitted_height = height
         self.setFixedHeight(height)
         self.updateGeometry()
 
-    def resizeEvent(self, event):  # noqa: N802
-        super().resizeEvent(event)
-        vp_w = self.viewport().width()
-        if vp_w > 40 and abs(vp_w - self._last_fit_width) >= 4:
-            self._fit(vp_w)
-
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(40, self._fitted_height)
+        return QSize(48, self._fitted_height)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(80, self._fitted_height)
+        return QSize(min(max(48, self._natural_width), max(48, self._last_fit_width + 4)), self._fitted_height)
 
 
 class _CodeEditor(QPlainTextEdit):
@@ -137,43 +166,93 @@ class _CodeEditor(QPlainTextEdit):
         return QSize(80, self._fitted_height)
 
 
+_SQL_BLOCK_LANGS = frozenset({'sql', 'oracle', 'mysql', 'plsql', 'postgresql', 'postgres', 'oceanbase', 'tsql'})
+_SQL_SNIPPET_RE = re.compile(r'^\s*(?:--[^\n]*\n\s*)*(?:SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN)\b', re.IGNORECASE)
+
+
+def _is_sql_code_block(language: str, code: str) -> bool:
+    lang = str(language or '').strip().lower()
+    if lang in _SQL_BLOCK_LANGS:
+        return True
+    if not lang or lang in {'text', 'txt'}:
+        return bool(_SQL_SNIPPET_RE.match(str(code or '')))
+    return False
+
+
 class CodeBlock(QFrame):
-    def __init__(self, language: str, code: str, parent=None):
+    apply_sql_requested = pyqtSignal(str)
+    run_sql_requested = pyqtSignal(str)
+
+    def __init__(self, language: str, code: str, parent=None, *, sql_actions: bool = False):
         super().__init__(parent)
         self.setObjectName('chat-code-block')
         self.setMaximumHeight(_CODE_LIMIT)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._code = str(code or '').replace('\r\n', '\n')
+        self._raw_language = (language or '').strip()
+        self._sql_actions_enabled = bool(sql_actions)
         self._fitted_total_h = 84
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self._header_bar = QWidget(self)
         bar = QHBoxLayout(self._header_bar)
-        bar.setContentsMargins(10, 5, 8, 5)
-        self.language = QLabel((language or 'text').strip() or 'text')
+        bar.setContentsMargins(10, 4, 8, 4)
+        bar.setSpacing(6)
+        self.language = QLabel(self._raw_language or 'text')
         self.language.setObjectName('chat-code-lang')
+        self.apply_sql_btn = QPushButton('应用')
+        self.apply_sql_btn.setObjectName('chat-sql-action-btn')
+        self.apply_sql_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.apply_sql_btn.setToolTip('将此 SQL 放入编辑器')
+        self.apply_sql_btn.clicked.connect(self._emit_apply_sql)
+        self.run_sql_btn = QPushButton('▷ 执行')
+        self.run_sql_btn.setObjectName('chat-sql-run-btn')
+        self.run_sql_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.run_sql_btn.setToolTip('将此 SQL 放入编辑器并立即执行')
+        self.run_sql_btn.clicked.connect(self._emit_run_sql)
         copy = QPushButton('复制')
         copy.setObjectName('chat-copy-btn')
+        copy.setCursor(Qt.CursorShape.PointingHandCursor)
         copy.clicked.connect(self._copy)
         bar.addWidget(self.language, 1)
+        bar.addWidget(self.apply_sql_btn, 0)
+        bar.addWidget(self.run_sql_btn, 0)
         bar.addWidget(copy, 0)
         layout.addWidget(self._header_bar)
         self.editor = _CodeEditor()
         self.editor.setPlainText(self._code)
         layout.addWidget(self.editor)
+        self._refresh_sql_actions()
         self._fit_height()
 
     def _copy(self) -> None:
         QApplication.clipboard().setText(self._code)
 
+    def _emit_apply_sql(self) -> None:
+        text = self._code.strip()
+        if text:
+            self.apply_sql_requested.emit(text)
+
+    def _emit_run_sql(self) -> None:
+        text = self._code.strip()
+        if text:
+            self.run_sql_requested.emit(text)
+
+    def _refresh_sql_actions(self) -> None:
+        visible = self._sql_actions_enabled and bool(self._code.strip()) and _is_sql_code_block(self._raw_language, self._code)
+        self.apply_sql_btn.setVisible(visible)
+        self.run_sql_btn.setVisible(visible)
+
     def set_code(self, language: str, code: str) -> None:
-        new_lang = (language or 'text').strip() or 'text'
+        self._raw_language = (language or '').strip()
+        new_lang = self._raw_language or 'text'
         if self.language.text() != new_lang:
             self.language.setText(new_lang)
         normalized = str(code or '').replace('\r\n', '\n')
         if normalized == self._code:
+            self._refresh_sql_actions()
             return
         if normalized.startswith(self._code):
             delta = normalized[len(self._code):]
@@ -183,6 +262,7 @@ class CodeBlock(QFrame):
         else:
             self.editor.setPlainText(normalized)
         self._code = normalized
+        self._refresh_sql_actions()
         self._fit_height()
 
     def _fit_height(self) -> None:
@@ -191,10 +271,9 @@ class CodeBlock(QFrame):
         lines = max(1, trimmed.count('\n') + 1) if trimmed else 1
         line_h = max(18, metrics.lineSpacing())
         header_h = max(_HEADER, self._header_bar.sizeHint().height())
-        # 12px 上下内边距 + 16px 横向滚动条预留 + 10px 缓冲，杜绝单行代码块被压成一条滚动条或出现多余竖向滚动条
-        wanted = lines * line_h + 38
+        wanted = lines * line_h + 24
         cap = _CODE_LIMIT - header_h - 4
-        height = min(cap, max(56, wanted))
+        height = min(cap, max(42, wanted))
         self.editor.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded if wanted > cap else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -220,7 +299,11 @@ class CodeBlock(QFrame):
 class MarkdownBody(QWidget):
     """Prose in a text browser, fenced regions in code blocks."""
 
-    def __init__(self, parent=None):
+    content_changed = pyqtSignal()
+    apply_sql_requested = pyqtSignal(str)
+    run_sql_requested = pyqtSignal(str)
+
+    def __init__(self, parent=None, *, sql_actions: bool = False):
         super().__init__(parent)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -230,6 +313,7 @@ class MarkdownBody(QWidget):
         self._source = ''
         self._plain = False
         self._width = 320
+        self._sql_actions = bool(sql_actions)
         self._blocks: list[QWidget] = []
         self._block_specs: list[tuple[str, str, str]] = []
         self._spacer: QWidget | None = None
@@ -252,17 +336,19 @@ class MarkdownBody(QWidget):
         self._source = str(text or '')
         self._plain = False
         self._rebuild()
+        self.content_changed.emit()
 
     def set_plain_text(self, text: str) -> None:
         self._source = str(text or '')
-        if self._plain and self._blocks and self._source.strip():
+        if self._plain and self._blocks and self._source.strip() and isinstance(self._blocks[0], _FittingBrowser):
             block = self._blocks[0]
-            block.setPlainText(self._source)
-            block._fit(self._width)
+            block.set_plain(self._source, self._width)
             self._block_specs = [('plain', '', self._source)]
+            self.content_changed.emit()
             return
         self._plain = True
         self._rebuild()
+        self.content_changed.emit()
 
     def append_text(self, piece: str) -> None:
         piece = str(piece or '')
@@ -303,8 +389,7 @@ class MarkdownBody(QWidget):
                     if new_body.startswith(old_body):
                         tail_widget.append_plain(new_body[len(old_body):], self._width)
                     else:
-                        tail_widget.setPlainText(new_body)
-                        tail_widget._fit(self._width)
+                        tail_widget.set_plain(new_body, self._width)
                     self._block_specs[-1] = (new_kind, new_lang, new_body)
                     common += 1
                 elif new_kind == 'md' and isinstance(tail_widget, _FittingBrowser):
@@ -326,20 +411,37 @@ class MarkdownBody(QWidget):
             self._layout.addWidget(block)
             self._blocks.append(block)
             self._block_specs.append((kind, lang, body))
+        self.content_changed.emit()
 
     def _create_block(self, kind: str, lang: str, body: str) -> QWidget:
         if kind == 'code':
-            block = CodeBlock(lang, body)
+            block = CodeBlock(lang, body, sql_actions=self._sql_actions)
+            if self._sql_actions:
+                block.apply_sql_requested.connect(self.apply_sql_requested.emit)
+                block.run_sql_requested.connect(self.run_sql_requested.emit)
         else:
             block = _FittingBrowser()
             if kind == 'plain':
-                block.setPlainText(body)
-                block._fit(self._width)
+                block.set_plain(body, self._width)
             else:
                 block.set_markdown(body, self._width)
         block.setMinimumWidth(0)
         block.setMaximumWidth(self._width)
         return block
+
+    def has_code_blocks(self) -> bool:
+        return any(isinstance(b, CodeBlock) for b in self._blocks)
+
+    def natural_width(self) -> int:
+        if not self._blocks:
+            return 80
+        widest = 80
+        for block in self._blocks:
+            if isinstance(block, CodeBlock):
+                return self._width
+            if isinstance(block, _FittingBrowser):
+                widest = max(widest, block.natural_width())
+        return min(self._width, widest)
 
     def source(self) -> str:
         return self._source

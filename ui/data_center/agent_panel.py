@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import time
 from typing import Any, Mapping
 import uuid
 import weakref
@@ -199,6 +200,7 @@ class DataCenterAgentPanel(QWidget):
     copy_sql_requested = pyqtSignal(str)
     put_sql_requested = pyqtSignal(str)
     manual_sql_requested = pyqtSignal(str)
+    run_sql_requested = pyqtSignal(str)
     prompt_send_requested = pyqtSignal(str)
     new_conversation_requested = pyqtSignal()
     event_received = pyqtSignal(object)
@@ -251,6 +253,8 @@ class DataCenterAgentPanel(QWidget):
         self._turn_prefix = ""
         self._chat_answer = None
         self._tool_rows = {}
+        self._tool_timings: dict[str, tuple[int, float, str, str]] = {}
+        self._tool_step_seq = 0
         self._failure_reason = ""
         self._input_composing = False
 
@@ -352,9 +356,7 @@ class DataCenterAgentPanel(QWidget):
             ("Draft mode" if draft else "Read-only mode")
         )
         self.read_only_label.setToolTip(mode_description)
-        self.setToolTip(
-            "数据中心 Agent 工作区" if zh else "Data-center Agent workspace"
-        )
+        self.setToolTip("")
         self.target_caption.setText("目标" if zh else "Target")
         self.model_caption.setText("模型" if zh else "Model")
         self.new_conversation_button.setText("新建对话" if zh else "New chat")
@@ -617,21 +619,22 @@ class DataCenterAgentPanel(QWidget):
         root.setSpacing(_lm.SPACING_CARD)
 
         header = QFrame(self)
-        header.setObjectName("agent-context-card")
-        apply_surface(header, "card")
+        header.setObjectName("dc-agent-header")
         header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(_lm.PAGE_GAP_NARROW, 8, _lm.PAGE_GAP_NARROW, 8)
-        header_layout.setSpacing(5)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(3)
 
         heading_row = QHBoxLayout()
-        heading_row.setSpacing(10)
+        heading_row.setContentsMargins(0, 0, 0, 0)
+        heading_row.setSpacing(6)
         heading = QVBoxLayout()
-        heading.setSpacing(2)
+        heading.setContentsMargins(0, 0, 0, 0)
+        heading.setSpacing(1)
         eyebrow = QLabel("DATA CENTER · AGENT", header)
         eyebrow.setObjectName("section-title")
         heading.addWidget(eyebrow)
         title = QLabel(header)
-        title.setObjectName("page-title")
+        title.setObjectName("dc-agent-title")
         title.setAccessibleName("Agent panel title")
         heading.addWidget(title)
         subtitle = QLabel(header)
@@ -751,33 +754,56 @@ class DataCenterAgentPanel(QWidget):
         body.setObjectName("agent-panel-body")
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(_lm.SPACING_CARD)
-        self.chat = ChatView(body)
-        self.chat.setMinimumHeight(160)
+        body_layout.setSpacing(6)
+        self.chat = ChatView(body, sql_actions=True)
+        self.chat.setMinimumHeight(140)
+        self.chat.apply_sql_requested.connect(self._on_chat_apply_sql)
+        self.chat.run_sql_requested.connect(self._on_chat_run_sql)
         body_layout.addWidget(self.chat, 1)
-        self.details_button = QPushButton("查看本轮执行详情", body)
+
+        # 紧凑单行状态 + 详情切换栏（替代原先占一整行的大按钮 + 独立状态卡片）
+        self._meta_bar = QFrame(body)
+        self._meta_bar.setObjectName("dc-agent-meta-bar")
+        meta_row = QHBoxLayout(self._meta_bar)
+        meta_row.setContentsMargins(4, 2, 4, 2)
+        meta_row.setSpacing(6)
+        self.result_status_label = QLabel("尚无最终结果", self._meta_bar)
+        self.result_status_label.setObjectName("dc-agent-status-pill")
+        self.result_status_label.setToolTip("Verification and truncation status comes from the Agent event")
+        meta_row.addWidget(self.result_status_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        meta_row.addStretch(1)
+        self.details_button = QPushButton("执行详情 ▾", self._meta_bar)
+        self.details_button.setObjectName("dc-agent-details-toggle")
         self.details_button.setCheckable(True)
+        self.details_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.details_button.setVisible(False)
         self.details_button.toggled.connect(self._sync_compact_rail)
-        body_layout.addWidget(self.details_button)
+        meta_row.addWidget(self.details_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._meta_bar.hide()
+        body_layout.addWidget(self._meta_bar)
 
         composer = QFrame(self)
-        composer.setObjectName("agent-prompt-card")
-        apply_surface(composer, "card")
+        composer.setObjectName("dc-agent-composer")
         self.prompt_composer = composer
         composer_layout = QVBoxLayout(composer)
-        composer_layout.setContentsMargins(_lm.PAGE_GAP_NARROW, 8, _lm.PAGE_GAP_NARROW, 8)
+        composer_layout.setContentsMargins(10, 6, 10, 8)
         composer_layout.setSpacing(5)
+        self._composer_top_slot = QHBoxLayout()
+        self._composer_top_slot.setContentsMargins(0, 0, 0, 0)
+        self._composer_top_slot.setSpacing(6)
+        composer_layout.addLayout(self._composer_top_slot)
         prompt_caption = QLabel(composer)
         prompt_caption.setObjectName("zone-title")
+        prompt_caption.hide()
         composer_layout.addWidget(prompt_caption)
         self.prompt_caption = prompt_caption
         self.prompt_input = QPlainTextEdit(composer)
-        self.prompt_input.setObjectName("agent-prompt-input")
+        self.prompt_input.setObjectName("dc-agent-prompt-input")
         self.prompt_input.setAccessibleName("Agent prompt")
+        self.prompt_input.setFrameShape(QFrame.Shape.NoFrame)
         self.prompt_input.setMinimumWidth(0)
-        self.prompt_input.setMinimumHeight(64)
-        self.prompt_input.setMaximumHeight(112)
+        self.prompt_input.setMinimumHeight(46)
+        self.prompt_input.setMaximumHeight(96)
         self.prompt_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.prompt_input.textChanged.connect(self._refresh_send_availability)
         self.prompt_input.installEventFilter(self)
@@ -786,21 +812,26 @@ class DataCenterAgentPanel(QWidget):
         self.prompt_input.setToolTip("Enter 发送，Shift+Enter 换行")
         composer_layout.addWidget(self.prompt_input)
         prompt_actions = QHBoxLayout()
-        prompt_actions.addStretch(1)
+        prompt_actions.setContentsMargins(0, 0, 0, 0)
+        prompt_actions.setSpacing(6)
+        self._composer_bottom_slot = QHBoxLayout()
+        self._composer_bottom_slot.setContentsMargins(0, 0, 0, 0)
+        self._composer_bottom_slot.setSpacing(6)
+        prompt_actions.addLayout(self._composer_bottom_slot, 1)
         self.send_button = QPushButton(composer)
         self.send_button.setObjectName("send-agent-prompt-button")
         self.send_button.setAccessibleName("Send Agent prompt")
         apply_button(self.send_button, "primary", compact=True)
         self.send_button.clicked.connect(self._on_send_prompt)
-        prompt_actions.addWidget(self.send_button)
+        prompt_actions.addWidget(self.send_button, 0, Qt.AlignmentFlag.AlignVCenter)
         composer_layout.addLayout(prompt_actions)
 
         conversation = QFrame(body)
         conversation.setObjectName("agent-thread-card")
         apply_surface(conversation, "card")
         conversation_layout = QVBoxLayout(conversation)
-        conversation_layout.setContentsMargins(14, 12, 14, 12)
-        conversation_layout.setSpacing(8)
+        conversation_layout.setContentsMargins(10, 8, 10, 8)
+        conversation_layout.setSpacing(6)
         conversation_title = QLabel("回答流", conversation)
         conversation_title.setObjectName("zone-title")
         conversation_layout.addWidget(conversation_title)
@@ -814,8 +845,8 @@ class DataCenterAgentPanel(QWidget):
         self.reasoning_view = self._make_readonly_view(
             conversation,
             "reasoning-summary-view",
-            minimum_height=68,
-            maximum_height=190,
+            minimum_height=56,
+            maximum_height=160,
         )
         conversation_layout.addWidget(self.reasoning_view)
         self.reasoning_summary_view = self.reasoning_view
@@ -828,15 +859,11 @@ class DataCenterAgentPanel(QWidget):
         self.answer_view = self._make_readonly_view(
             conversation,
             "agent-answer-view",
-            minimum_height=126,
-            maximum_height=300,
+            minimum_height=96,
+            maximum_height=240,
         )
         self.answer_view.hide()
         self.text_view = self.answer_view
-        self.result_status_label = QLabel("尚无最终结果", conversation)
-        self.result_status_label.setObjectName("status-pill")
-        self.result_status_label.setToolTip("Verification and truncation status comes from the Agent event")
-        conversation_layout.addWidget(self.result_status_label, 0, Qt.AlignmentFlag.AlignLeft)
         # 紧凑侧栏：没有任何内容时的一句上手提示（默认隐藏，独立面板不显示）
         self.compact_hint = QLabel(body)
         self.compact_hint.setObjectName("field-hint")
@@ -958,8 +985,8 @@ class DataCenterAgentPanel(QWidget):
             self._context_grid.setColumnStretch(3, 1)
             self.target_value_label.setMaximumWidth(16777215)
             self.model_value_label.setMaximumWidth(16777215)
-        self.prompt_input.setMinimumHeight(60 if narrow else 68)
-        self.prompt_input.setMaximumHeight(88 if narrow else 112)
+        self.prompt_input.setMinimumHeight(44 if narrow else 52)
+        self.prompt_input.setMaximumHeight(88 if narrow else 104)
         self._context_grid.invalidate()
         self.updateGeometry()
         self._apply_preview_subtitle_elision()
@@ -1065,10 +1092,14 @@ class DataCenterAgentPanel(QWidget):
         self.chat.setVisible(self.chat.has_items() or running)
         self.answer_view.hide()
         expanded = self.details_button.isChecked()
-        self.details_button.setVisible(reasoning or sql or preview or evidence)
+        has_details = reasoning or sql or preview or evidence
+        self.details_button.setVisible(has_details)
+        zh = getattr(self, "_display_language", "zh") == "zh"
+        self.details_button.setText(("收起详情 ▴" if expanded else "执行详情 ▾") if zh else ("Hide details ▴" if expanded else "Details ▾"))
         self.reasoning_view.setVisible(reasoning and expanded)
-        self._conversation_card.setVisible(running or bool(self._terminal_seen) or (reasoning and expanded))
+        self._conversation_card.setVisible(reasoning and expanded)
         self.result_status_label.setVisible(bool(self._terminal_seen))
+        self._meta_bar.setVisible(bool(self._terminal_seen) or has_details)
         self._evidence_card.setVisible(expanded and (sql or preview or evidence))
         self.compact_hint.setVisible(not self.chat.has_items() and not running)
 
@@ -1350,9 +1381,9 @@ class DataCenterAgentPanel(QWidget):
         if sql in answer:
             return
         note = (
-            "没有查到数据。SQL 如下，可应用到编辑器。\n\n" + sql
+            "没有查到数据，生成的 SQL 如下（可点击「执行详情」应用到编辑器）：\n\n```sql\n" + sql + "\n```"
             if self._display_language == "zh" else
-            "No rows were returned. The SQL is below and can be applied to the editor.\n\n" + sql
+            "No rows were returned. Generated SQL:\n\n```sql\n" + sql + "\n```"
         )
         if answer:
             self._append_channel("answer", "\n\n" + note, self.answer_view)
@@ -1376,20 +1407,118 @@ class DataCenterAgentPanel(QWidget):
             return
         self._append_channel("reasoning", "\n" + text, self.reasoning_view)
 
+    @staticmethod
+    def _summarize_tool_args(payload: Mapping[str, Any]) -> str:
+        from tools.app_logging import redact_text
+        args = payload.get("arguments")
+        if not isinstance(args, Mapping):
+            args = payload
+        sensitive = ("password", "passwd", "secret", "token", "auth", "credential", "key_file", "private")
+        parts: list[str] = []
+        for key in ("sql", "query", "statement", "query_text"):
+            val = args.get(key)
+            if isinstance(val, str) and val.strip():
+                one_line = " ".join(val.split())
+                parts.append(f"sql={_bounded_label(redact_text(one_line), 90)}")
+                break
+        for key in ("keyword", "pattern", "schema", "owner", "object_name", "name", "object_type", "operation", "collection", "key", "row_limit"):
+            if key not in args:
+                continue
+            if any(bad in key.lower() for bad in sensitive):
+                continue
+            val = args.get(key)
+            if val is None or val == "":
+                continue
+            text = _bounded_label(redact_text(str(val)), 48)
+            parts.append(f"{key}={text}")
+            if len(parts) >= 3:
+                break
+        return ", ".join(parts)
+
+    @staticmethod
+    def _summarize_tool_outcome(payload: Mapping[str, Any], *, zh: bool) -> str:
+        from tools.app_logging import redact_text
+        ok = bool(payload.get("ok", True))
+        code = str(payload.get("code") or payload.get("error_code") or "").strip()
+        preview = payload.get("result_preview") if "result_preview" in payload else payload.get("data")
+        if ok:
+            if isinstance(preview, Mapping):
+                if "row_count" in preview:
+                    return f"返回 {preview.get('row_count')} 行" if zh else f"{preview.get('row_count')} rows"
+                if isinstance(preview.get("rows"), list):
+                    return f"返回 {len(preview['rows'])} 行" if zh else f"{len(preview['rows'])} rows"
+                if isinstance(preview.get("objects"), list):
+                    return f"命中 {len(preview['objects'])} 个对象" if zh else f"{len(preview['objects'])} objects"
+                if isinstance(preview.get("columns"), list):
+                    return f"{len(preview['columns'])} 个字段" if zh else f"{len(preview['columns'])} columns"
+            return "成功" if zh else "ok"
+        reason = ""
+        if isinstance(preview, Mapping):
+            reason = str(preview.get("message") or preview.get("error") or "").strip()
+        elif isinstance(preview, str):
+            reason = preview.strip()
+        if not reason:
+            reason = str(payload.get("message") or payload.get("error") or "").strip()
+        tag = f"[{code}]" if code else ""
+        head = ("失败" if zh else "failed") + (f" {tag}" if tag else "")
+        if reason:
+            return f"{head}: {_bounded_label(redact_text(reason), 120)}"
+        return head
+
     def _handle_tool_event(self, event_type: str, payload: Mapping[str, Any]) -> None:
         name = _bounded_label(payload.get("name") or self._copy("工具", "tool"), 100)
         call_id = str(payload.get("call_id") or payload.get("id") or "")
+        timing_key = call_id or f"anon:{name}:{self._tool_step_seq}"
+        now = time.monotonic()
         sql = self._extract_sql(payload)
         if sql:
             self._append_channel("sql", sql.rstrip() + "\n", self.sql_view)
+        if event_type in {"tool_call", "tool_started"}:
+            if timing_key not in self._tool_timings:
+                self._tool_step_seq += 1
+                self._tool_timings[timing_key] = (
+                    self._tool_step_seq,
+                    now,
+                    name,
+                    self._summarize_tool_args(payload),
+                )
+            else:
+                step_no, started_at, old_name, old_summary = self._tool_timings[timing_key]
+                if not old_summary:
+                    self._tool_timings[timing_key] = (
+                        step_no,
+                        started_at,
+                        old_name or name,
+                        self._summarize_tool_args(payload),
+                    )
+        elapsed_s: float | None = None
+        if event_type == "tool_result":
+            entry = self._tool_timings.pop(timing_key, None)
+            if entry is not None:
+                step_no, started_at, rec_name, arg_summary = entry
+                elapsed_ms = max(0, int((now - started_at) * 1000))
+                elapsed_s = elapsed_ms / 1000.0
+                tool_name = rec_name or name
+            else:
+                self._tool_step_seq += 1
+                step_no = self._tool_step_seq
+                elapsed_ms = 0
+                tool_name = name
+                arg_summary = self._summarize_tool_args(payload)
+            zh = self._display_language == "zh"
+            outcome_text = self._summarize_tool_outcome(payload, zh=zh)
+            arg_part = f" ({arg_summary})" if arg_summary else ""
+            time_part = f" · {elapsed_ms}ms" if elapsed_ms > 0 else ""
+            timeline_line = f"[{step_no}] {tool_name}{arg_part} → {outcome_text}{time_part}"
+            self._append_channel("evidence", timeline_line + "\n", self.evidence_view)
         state = ("ok" if payload.get("ok", True) else "failed") if event_type == "tool_result" else "running"
         row = self._tool_rows.get(call_id) if call_id else None
         if row is None:
-            row = self._ensure_chat_answer().add_tool(name, state=state, seconds=None, call_id=call_id)
+            row = self._ensure_chat_answer().add_tool(name, state=state, seconds=elapsed_s, call_id=call_id)
             if call_id:
                 self._tool_rows[call_id] = row
         else:
-            row.set_state(state)
+            row.set_state(state, seconds=elapsed_s)
         self._sync_compact_rail()
         self.chat.note_activity()
         if event_type == "tool_call":
@@ -1520,6 +1649,8 @@ class DataCenterAgentPanel(QWidget):
         self._turn_prefix = ""
         self._chat_answer = None
         self._tool_rows.clear()
+        self._tool_timings.clear()
+        self._tool_step_seq = 0
         self.details_button.setChecked(False)
         self._channels = {
             key: _BoundedChannel(limit, marker=self._truncation_marker(key))
@@ -1662,6 +1793,21 @@ class DataCenterAgentPanel(QWidget):
         sql = self._channels["sql"].value.rstrip()
         self.put_sql_requested.emit(sql)
         self.manual_sql_requested.emit(sql)
+
+    @pyqtSlot(str)
+    def _on_chat_apply_sql(self, sql: str) -> None:
+        text = str(sql or "").strip()
+        if not text:
+            return
+        self.put_sql_requested.emit(text)
+        self.manual_sql_requested.emit(text)
+
+    @pyqtSlot(str)
+    def _on_chat_run_sql(self, sql: str) -> None:
+        text = str(sql or "").strip()
+        if not text:
+            return
+        self.run_sql_requested.emit(text)
 
     @pyqtSlot()
     def _on_new_conversation(self) -> None:

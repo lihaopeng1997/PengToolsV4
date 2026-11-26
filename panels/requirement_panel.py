@@ -5,7 +5,7 @@ import os
 import re
 
 from PyQt6.QtCore import QDate, QEvent, QFileInfo, QItemSelectionModel, QRect, QSignalBlocker, QSize, QThread, QTimer, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QFontMetrics, QKeySequence, QTextOption
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QTextOption
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
@@ -196,7 +196,7 @@ from tools.svn_workspace import (
     workspace_snapshot, working_copy_locks,
 )
 from ui.confirm_dialog import (
-    confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning,
+    _GlassPrismDialog, confirm_action, offer_next_steps, show_error, show_info, show_success, show_warning,
 )
 from ui.aurora_progress import AuroraProgress
 from tools.requirement_workflow import configured_statuses, configured_stages, target_status, workflow_stage_index
@@ -265,6 +265,136 @@ def format_online_month_label(month):
     if match:
         return f'{match.group(1)}年{int(match.group(2))}月'
     return text
+
+
+class _RequirementTreeDelegate(QStyledItemDelegate):
+    """需求列表行绘制：保留清爽层次的同时为编号/状态添加克制的语义色彩与柔和状态胶囊。"""
+
+    _PILL_STYLES = {
+        'analysis': ('#EFF6FF', '#1D4ED8', '#BFDBFE'),
+        'develop': ('#F3F0FF', '#5B46C8', '#DDD6FE'),
+        'testing': ('#FFFBEB', '#B45309', '#FDE68A'),
+        'release': ('#ECFEFF', '#0E7490', '#A5F3FC'),
+        'online': ('#ECFDF5', '#047857', '#A7F3D0'),
+        'paused': ('#FEF2F2', '#B91C1C', '#FECACA'),
+    }
+
+    def paint(self, painter, option, index):  # noqa: N802
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QPainter
+        from panels.requirement_views import STAGE_COLOR_TOKENS, status_group
+
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        hovered = bool(opt.state & QStyle.StateFlag.State_MouseOver)
+        is_group = not index.parent().isValid()
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # 绘制背景与底部分隔线
+        if is_group:
+            bg = QColor('#EFEBF9' if (selected or hovered) else '#F6F3FD')
+            painter.fillRect(opt.rect, bg)
+            painter.setPen(QColor('#EAE4F7'))
+            painter.drawLine(opt.rect.left(), opt.rect.bottom(), opt.rect.right(), opt.rect.bottom())
+            if index.column() == 0:
+                group_key = str(index.data(GROUP_MONTH_ROLE) or '')
+                accent_hex = '#6C58D9'
+                if group_key.startswith('status:'):
+                    s_key = group_key.split(':', 1)[1]
+                    accent_hex = STAGE_COLOR_TOKENS.get(s_key, ('PRIMARY', '#6C58D9'))[1]
+                elif group_key == '__pinned__':
+                    accent_hex = '#D97706'
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(accent_hex))
+                bar_y = opt.rect.top() + (opt.rect.height() - 12) / 2.0
+                painter.drawRoundedRect(QRectF(opt.rect.left() + 4, bar_y, 3.0, 12.0), 1.5, 1.5)
+                font = QFont(opt.font)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QColor('#262438'))
+                text_rect = opt.rect.adjusted(12, 0, -6, 0)
+                painter.drawText(
+                    text_rect,
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    QFontMetrics(font).elidedText(str(opt.text or ''), Qt.TextElideMode.ElideRight, max(20, text_rect.width())),
+                )
+            painter.restore()
+            return
+
+        # 普通需求行背景
+        if selected:
+            painter.fillRect(opt.rect, QColor('#ECE7FA'))
+        elif hovered:
+            painter.fillRect(opt.rect, QColor('#F7F5FC'))
+        painter.setPen(QColor('#EFEBF7'))
+        painter.drawLine(opt.rect.left(), opt.rect.bottom(), opt.rect.right(), opt.rect.bottom())
+
+        col = index.column()
+        text = str(opt.text or '')
+        font = QFont(opt.font)
+        if col == 0:
+            # 编号列：REQ 紫 / DEF(BUG) 红，左侧加一条克制的语义细色条
+            req = index.data(Qt.ItemDataRole.UserRole) or {}
+            is_bug = isinstance(req, dict) and req.get('record_kind') == 'BUG'
+            status_val = req.get('status', '') if isinstance(req, dict) else ''
+            grp = status_group(status_val)
+            strip_hex = STAGE_COLOR_TOKENS.get(grp, ('PRIMARY', '#6C58D9'))[1]
+            painter.setPen(Qt.PenStyle.NoPen)
+            strip_c = QColor(strip_hex)
+            strip_c.setAlpha(200 if selected else 140)
+            painter.setBrush(strip_c)
+            painter.drawRoundedRect(QRectF(opt.rect.left() + 2, opt.rect.top() + 5, 2.5, max(8.0, opt.rect.height() - 10)), 1.2, 1.2)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor('#DC2626' if is_bug else '#4D3BBD'))
+            r = opt.rect.adjusted(9, 0, -4, 0)
+            painter.drawText(
+                r,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, max(20, r.width())),
+            )
+        elif col == 1:
+            painter.setFont(font)
+            painter.setPen(QColor('#262438'))
+            r = opt.rect.adjusted(4, 0, -6, 0)
+            painter.drawText(
+                r,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, max(20, r.width())),
+            )
+        elif col == 2 and text:
+            # 状态列：柔和浅色胶囊 + 清晰语义色字
+            grp = status_group(text)
+            bg_hex, fg_hex, bd_hex = self._PILL_STYLES.get(grp, ('#F3F4F6', '#4B5563', '#E5E7EB'))
+            pill_font = QFont(opt.font)
+            pill_font.setBold(True)
+            base_pt = pill_font.pointSizeF() if pill_font.pointSizeF() > 0 else 9.0
+            pill_font.setPointSizeF(max(7.5, base_pt * 0.88))
+            fm = QFontMetrics(pill_font)
+            tw = fm.horizontalAdvance(text)
+            pill_w = min(float(opt.rect.width() - 4), float(tw + 14))
+            pill_h = min(float(opt.rect.height() - 8), 20.0)
+            px = opt.rect.left() + 2.0
+            py = opt.rect.top() + (opt.rect.height() - pill_h) / 2.0
+            pill_rect = QRectF(px, py, max(24.0, pill_w), max(16.0, pill_h))
+            painter.setPen(QColor(bd_hex))
+            painter.setBrush(QColor(bg_hex))
+            painter.drawRoundedRect(pill_rect, pill_h / 2.0, pill_h / 2.0)
+            painter.setFont(pill_font)
+            painter.setPen(QColor(fg_hex))
+            painter.drawText(pill_rect, Qt.AlignmentFlag.AlignCenter, text)
+        elif col == 3 and text:
+            # 测试点进度：全部完成用翠绿，其余柔和灰
+            parts = text.split('/')
+            all_done = len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit() and int(parts[1]) > 0 and int(parts[0]) == int(parts[1])
+            font.setBold(all_done)
+            painter.setFont(font)
+            painter.setPen(QColor('#059669' if all_done else '#7A758D'))
+            painter.drawText(opt.rect.adjusted(2, 0, -6, 0), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text)
+        painter.restore()
 
 
 class RequirementTree(QTreeWidget):
@@ -361,15 +491,21 @@ class MonthSelect(QWidget):
         year, month = parse_year_month(value)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        self.year_spin = CompactStepper(2000, 2099, year, edit_width=52, suffix=' 年')
+        layout.setSpacing(6)
+        self.year_spin = CompactStepper(2000, 2099, year, edit_width=56, suffix='')
+        year_unit = QLabel('年', self)
+        year_unit.setObjectName('field-hint')
+        year_unit.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.month_combo = QComboBox()
-        size_combo(self.month_combo, 'sm')
+        self.month_combo.setFixedHeight(32)
+        self.month_combo.setMinimumWidth(92)
+        self.month_combo.setMaximumWidth(116)
         for value in range(1, 13):
             self.month_combo.addItem(f'{value:02d} 月', value)
         self.month_combo.setCurrentIndex(max(0, min(11, month - 1)))
-        layout.addWidget(self.year_spin)
-        layout.addWidget(self.month_combo)
+        layout.addWidget(self.year_spin, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(year_unit, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.month_combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def month_text(self):
         return f'{self.year_spin.value():04d}-{int(self.month_combo.currentData()):02d}'
@@ -661,12 +797,11 @@ class SvnWorker(QThread):
         self.deleteLater()
 
 
-class SvnCheckoutDialog(QDialog):
+class SvnCheckoutDialog(_GlassPrismDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('通过 SVN 路径导入需求')
-        clamp_dialog_geometry(self, 720, 380, min_width=520, min_height=320)
-        root = QVBoxLayout(self)
+        clamp_dialog_geometry(self, 744, 430, min_width=544, min_height=370)
+        root = self._init_glass_shell('通过 SVN 路径导入需求', margins=(20, 16, 20, 16), spacing=12)
         note = QLabel('填写 SVN 地址，选择类型与上线月份后检出到本机。使用本机已缓存认证，不保存密码。')
         note.setObjectName('ops-safety-note'); note.setWordWrap(True); root.addWidget(note)
         form = QFormLayout()
@@ -678,10 +813,12 @@ class SvnCheckoutDialog(QDialog):
         self.kind_combo = QComboBox(); self.kind_combo.addItems(('需求', 'BUG'))
         size_combo(self.kind_combo, 'sm')
         self.month_enabled = QCheckBox('按上线月份归档'); self.month_enabled.setChecked(True)
-        month_row = QHBoxLayout(); month_row.setSpacing(8); month_row.addWidget(self.month_enabled)
+        month_row = QHBoxLayout(); month_row.setSpacing(10); month_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        month_row.addWidget(self.month_enabled, 0, Qt.AlignmentFlag.AlignVCenter)
         # 只选年月，不用带「日」的日历
         self.month_edit = MonthSelect()
-        month_row.addWidget(self.month_edit); month_row.addStretch()
+        self.month_enabled.toggled.connect(self.month_edit.setEnabled)
+        month_row.addWidget(self.month_edit, 0, Qt.AlignmentFlag.AlignVCenter); month_row.addStretch()
         folder_row = QHBoxLayout()
         self.root_edit = QLineEdit(SVN_WORKSPACE_DIR); self.root_edit.setProperty('editableField', True); size_line(self.root_edit, 'path'); folder_row.addWidget(self.root_edit, 1)
         browse = QPushButton('浏览'); size_compact_button(browse)
@@ -1627,12 +1764,12 @@ class RequirementPanel(QWidget):
         self.status_filter = QComboBox(self); self.status_filter.addItems(('全部状态',) + configured_statuses()); self.status_filter.currentIndexChanged.connect(self._on_filter_changed)
         self.status_filter.hide()
         size_combo(self.month_filter, 'sm'); size_combo(self.system_filter, 'md'); size_combo(self.kind_filter, 'sm'); size_combo(self.status_filter, 'sm')
-        # 筛选只占必要宽度，把空间留给搜索框与核心主按钮，避免窄窗口下工具栏被裁切
-        for combo, width in ((self.month_filter, 112), (self.system_filter, 124), (self.kind_filter, 100)):
+        # 筛选只占必要宽度，并留足文本空间避免「全部月份 / 全部系统 / 全部类型」被裁切
+        for combo, width in ((self.month_filter, 128), (self.system_filter, 144), (self.kind_filter, 114)):
             size_pick_combo(combo, width)
-        toolbar_layout.addWidget(self.month_filter)
-        toolbar_layout.addWidget(self.system_filter)
-        toolbar_layout.addWidget(self.kind_filter)
+        toolbar_layout.addWidget(self.month_filter, 0, Qt.AlignmentFlag.AlignVCenter)
+        toolbar_layout.addWidget(self.system_filter, 0, Qt.AlignmentFlag.AlignVCenter)
+        toolbar_layout.addWidget(self.kind_filter, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.update_all_btn = QPushButton('拉取最新', toolbar_card)
         self.update_all_btn.setToolTip('依次 SVN update 台账里全部已绑定的需求目录，并刷新文件数')
@@ -1678,10 +1815,7 @@ class RequirementPanel(QWidget):
         except Exception:
             pass
         root.addWidget(toolbar_card)
-        # Local sizing rule: keep search & filter combos at exact 28px outer height matching compact buttons.
         self._req_toolbar_fields = (self.search_edit, self.month_filter, self.system_filter, self.kind_filter)
-        for field in self._req_toolbar_fields:
-            field.setStyleSheet('QComboBox, QLineEdit { min-height: 20px; max-height: 20px; padding-top: 3px; padding-bottom: 3px; }')
         self.loading = AuroraProgress(self)
 
         # 进度统计：既是概览，也是状态筛选入口
@@ -1742,6 +1876,9 @@ class RequirementPanel(QWidget):
         self.tree_count_label.hide()
 
         self.requirement_list = RequirementTree(); self.requirement_list.setObjectName('requirement-tree')
+        self.requirement_list.setMouseTracking(True)
+        self._req_tree_delegate = _RequirementTreeDelegate(self.requirement_list)
+        self.requirement_list.setItemDelegate(self._req_tree_delegate)
         self.requirement_list.setHeaderHidden(True)
         self._tree_expand_state = {}
         self._search_expand_snapshot = None
@@ -1797,15 +1934,14 @@ class RequirementPanel(QWidget):
         self.status_combo.addItems(configured_statuses())
         self.status_combo.setToolTip('直接修改进度状态，立即保存')
         self.status_combo.currentTextChanged.connect(self._on_status_combo_changed)
-        size_pick_combo(self.status_combo, 132)
-        self.status_combo.setStyleSheet('QComboBox { min-height: 28px; max-height: 28px; padding-top: 3px; padding-bottom: 3px; }')
-        head.addWidget(self.status_combo)
+        size_pick_combo(self.status_combo, 138)
+        head.addWidget(self.status_combo, 0, Qt.AlignmentFlag.AlignVCenter)
         self.edit_btn = QPushButton('编辑')
         self.edit_btn.setProperty('compactAction', True)
         self.edit_btn.setToolTip('编辑完整信息：系统、日期、SVN、附件、SQL')
         self.edit_btn.clicked.connect(self._edit_requirement)
         size_compact_button(self.edit_btn)
-        head.addWidget(self.edit_btn)
+        head.addWidget(self.edit_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         card.addLayout(head)
         self.detail_title = QLabel('请选择左侧需求')
         self.detail_title.setObjectName('section-title')
@@ -1867,6 +2003,7 @@ class RequirementPanel(QWidget):
         self.quick_commit_btn.hide()
         self.detail_more_btn = QPushButton('更多')
         size_compact_button(self.detail_more_btn)
+        self.detail_more_btn.setStyleSheet('QPushButton { padding-right: 22px; }')
         self.detail_more_menu = QMenu(self.detail_more_btn)
         self._action_quick_update = self.detail_more_menu.addAction('SVN 更新当前需求', self._update_current)
         self._action_quick_commit = self.detail_more_menu.addAction('提交需求改动', self._commit_current_changes)
@@ -1920,14 +2057,14 @@ class RequirementPanel(QWidget):
             btn = QPushButton(short)
             btn.setObjectName('flag-chip')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setMinimumHeight(30)
-            btn.setMaximumHeight(34)
-            btn.setMinimumWidth(72)
+            btn.setMinimumHeight(22)
+            btn.setMaximumHeight(24)
+            btn.setMinimumWidth(56)
             btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             btn.setToolTip(f'{full} · 点击切换完成状态')
             btn.clicked.connect(lambda _checked=False, flag_key=key: self._on_flag_chip_clicked(flag_key))
             self._flag_buttons[key] = btn
-            self.flag_chips_layout.addWidget(btn, 0)
+            self.flag_chips_layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
             btn.hide()
         self.flag_chips_layout.addStretch(1)
         flag_section_layout.addWidget(self.flag_chips, 1)
@@ -1993,9 +2130,10 @@ class RequirementPanel(QWidget):
         )
         for button in self.file_library_action_buttons:
             size_compact_button(button)
-            file_head.addWidget(button)
+            file_head.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.file_more_btn = QPushButton('更多')
         size_compact_button(self.file_more_btn)
+        self.file_more_btn.setStyleSheet('QPushButton { padding-right: 22px; }')
         self.file_more_menu = QMenu(self.file_more_btn)
         self._action_import = self.file_more_menu.addAction('从单份文档登记需求…', self._import_requirement)
         self._action_add_file = self.file_more_menu.addAction('添加文件…', self._add_existing_files)
@@ -2006,7 +2144,7 @@ class RequirementPanel(QWidget):
         self._action_revert = self.file_more_menu.addAction('回滚选中改动', self._revert_svn_paths)
         self.file_more_menu.aboutToShow.connect(self._sync_file_more_menu)
         self.file_more_btn.setMenu(self.file_more_menu)
-        file_head.addWidget(self.file_more_btn)
+        file_head.addWidget(self.file_more_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.file_search_edit = QLineEdit()
         self.file_search_edit.setProperty('editableField', True)
         self.file_search_edit.setClearButtonEnabled(True)
@@ -2017,16 +2155,16 @@ class RequirementPanel(QWidget):
         self._file_search_timer.setInterval(150)
         self._file_search_timer.timeout.connect(self._filter_file_tree_local)
         self.file_search_edit.textChanged.connect(lambda *_: self._file_search_timer.start())
-        file_head.addWidget(self.file_search_edit, 1)
+        file_head.addWidget(self.file_search_edit, 1, Qt.AlignmentFlag.AlignVCenter)
         self.file_count_label = QLabel('')
         self.file_count_label.setObjectName('small-label')
-        file_head.addWidget(self.file_count_label)
+        file_head.addWidget(self.file_count_label, 0, Qt.AlignmentFlag.AlignVCenter)
         self.svn_meta = QLabel()
         self.svn_meta.setObjectName('svn-workspace-meta')
         self.svn_meta.setWordWrap(False)
         self.svn_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.svn_meta.hide()
-        file_head.addWidget(self.svn_meta)
+        file_head.addWidget(self.svn_meta, 0, Qt.AlignmentFlag.AlignVCenter)
         file_layout.addLayout(file_head)
 
         self.file_tree = QTreeWidget(); self.file_tree.setObjectName('requirement-file-tree')
@@ -2129,18 +2267,19 @@ class RequirementPanel(QWidget):
         self._arrange_detail_tabs()
 
         from ui.layout_metrics import REQ_LEFT_DEFAULT, REQ_LEFT_MIN, REQ_RIGHT_MIN
+        wide_left_default = max(520, REQ_LEFT_DEFAULT)
         requirement_ui = load_requirement_ui()
-        sizes = requirement_ui.get('splitter_sizes') or [REQ_LEFT_DEFAULT, 820]
-        if len(sizes) >= 2 and sizes[0] < REQ_LEFT_MIN:
-            sizes = [REQ_LEFT_DEFAULT, max(REQ_RIGHT_MIN, sizes[1])]
+        sizes = requirement_ui.get('splitter_sizes') or [wide_left_default, 760]
+        if len(sizes) >= 2 and sizes[0] < 420:
+            sizes = [wide_left_default, max(REQ_RIGHT_MIN, sizes[1])]
         try:
             from ui.splitter_prefs import install_splitter_prefs, layout_bucket
             install_splitter_prefs(
                 self.detail_splitter,
-                defaults=[REQ_LEFT_DEFAULT, 820],
+                defaults=[wide_left_default, 760],
                 saved=sizes,
                 page_id='requirement',
-                tab_id='tree-detail',
+                tab_id='tree-detail-v2',
                 bucket=layout_bucket('standard'),
                 min_sizes=[REQ_LEFT_MIN, REQ_RIGHT_MIN],
                 accessible_name='需求管理列表/详情分隔',
@@ -2367,24 +2506,24 @@ class RequirementPanel(QWidget):
         left_pane = self.detail_splitter.widget(0)
         right_pane = self.detail_splitter.widget(1)
         if mode == 'wide':
-            left_min, right_min, left_def = REQ_LEFT_MIN, REQ_RIGHT_MIN, 460
+            left_min, right_min, left_def = REQ_LEFT_MIN, REQ_RIGHT_MIN, 540
         elif mode == 'compact':
-            left_min, right_min, left_def = 280, 460, 340
+            left_min, right_min, left_def = 300, 440, 400
         elif mode == 'narrow':
-            left_min, right_min, left_def = 250, 360, 300
+            left_min, right_min, left_def = 260, 360, 340
         else:  # standard
-            left_min, right_min, left_def = 320, REQ_RIGHT_MIN, 420
+            left_min, right_min, left_def = 340, REQ_RIGHT_MIN, 480
         if left_pane is not None:
             left_pane.setMinimumWidth(left_min)
-            left_pane.setMaximumWidth(REQ_LEFT_MAX if mode in ('wide', 'standard') else 16777215)
+            left_pane.setMaximumWidth(max(720, REQ_LEFT_MAX) if mode in ('wide', 'standard') else 16777215)
         if right_pane is not None:
             right_pane.setMinimumWidth(right_min)
         from ui.splitter_prefs import install_splitter_prefs, layout_bucket
         install_splitter_prefs(
             self.detail_splitter,
-            defaults=[left_def, 820],
+            defaults=[left_def, 740],
             page_id='requirement',
-            tab_id='tree-detail',
+            tab_id='tree-detail-v2',
             bucket=layout_bucket(mode),
             min_sizes=[left_min, right_min],
             accessible_name='需求管理列表/详情分隔',

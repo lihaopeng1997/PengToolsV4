@@ -4,12 +4,12 @@ import copy
 import os
 
 from PyQt6.QtCore import QDate, QModelIndex, QStringListModel, QThread, QTime, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtGui import QBrush, QColor, QCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton,
-    QInputDialog, QLineEdit, QHeaderView,
+    QInputDialog, QHeaderView, QToolTip,
     QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QTabBar, QTableView, QTableWidget, QTableWidgetItem, QTextEdit,
     QTimeEdit, QVBoxLayout, QWidget,
 )
@@ -22,6 +22,7 @@ from tools.daily_reports import (
 )
 from ui.confirm_dialog import confirm_action, show_info, show_success, show_warning
 from ui.daily_rich_edit import DailyRichEdit
+from ui.design_system import apply_button
 from ui.dialog_buttons import clamp_dialog_geometry, localize_button_box
 from ui.field_metrics import apply_caption, apply_form, size_combo, size_compact_button, size_date, size_line
 from ui.date_picker import UnifiedDateEdit
@@ -312,6 +313,7 @@ class KnowledgeTab(QWidget):
         self.entry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.entry_list.customContextMenuRequested.connect(self._show_entry_menu)
         self.entry_list.currentItemChanged.connect(self._show_entry)
+        self.entry_list.itemDoubleClicked.connect(self._on_entry_double_clicked)
         left_layout.addWidget(self.entry_list)
         splitter.addWidget(left)
 
@@ -349,19 +351,40 @@ class KnowledgeTab(QWidget):
         self.sheet_tabs.currentChanged.connect(self._choose_sheet)
         table_layout.addWidget(self.sheet_tabs)
         filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
         self.filter_column = QComboBox()
+        self.filter_column.setMinimumWidth(120)
         self.filter_column.currentIndexChanged.connect(self._apply_sheet_filter)
         self.sheet_filter = QLineEdit()
-        self.sheet_filter.setPlaceholderText('筛选当前工作表')
+        self.sheet_filter.setPlaceholderText('筛选关键字（支持「列名:值」空格多列筛选，或点右侧「+ 加条件」组合）')
         self.sheet_filter.setClearButtonEnabled(True)
         self._sheet_filter_timer = QTimer(self)
         self._sheet_filter_timer.setSingleShot(True)
         self._sheet_filter_timer.setInterval(160)
         self._sheet_filter_timer.timeout.connect(self._apply_sheet_filter)
         self.sheet_filter.textChanged.connect(lambda *_: self._sheet_filter_timer.start())
-        filter_row.addWidget(self.filter_column)
-        filter_row.addWidget(self.sheet_filter, 1)
+        self.sheet_filter.returnPressed.connect(self._add_column_filter_rule)
+        self._column_filter_rules: list[tuple[int, str, str]] = []  # (col_idx, col_label, keyword)
+        self.add_filter_rule_btn = QPushButton('+ 加条件')
+        self.add_filter_rule_btn.setToolTip('将当前列和关键字固定为一个筛选条件，继续添加更多列实现多列 AND 筛选')
+        apply_button(self.add_filter_rule_btn, 'secondary', compact=True)
+        self.add_filter_rule_btn.clicked.connect(self._add_column_filter_rule)
+        self.clear_filters_btn = QPushButton('清空筛选')
+        apply_button(self.clear_filters_btn, 'ghost', compact=True)
+        self.clear_filters_btn.clicked.connect(self._clear_all_sheet_filters)
+        self.clear_filters_btn.hide()
+        filter_row.addWidget(self.filter_column, 0, Qt.AlignmentFlag.AlignVCenter)
+        filter_row.addWidget(self.sheet_filter, 1, Qt.AlignmentFlag.AlignVCenter)
+        filter_row.addWidget(self.add_filter_rule_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        filter_row.addWidget(self.clear_filters_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         table_layout.addLayout(filter_row)
+        self._filter_chips_host = QWidget()
+        self._filter_chips_layout = QHBoxLayout(self._filter_chips_host)
+        self._filter_chips_layout.setContentsMargins(0, 2, 0, 2)
+        self._filter_chips_layout.setSpacing(6)
+        self._filter_chips_layout.addStretch(1)
+        self._filter_chips_host.hide()
+        table_layout.addWidget(self._filter_chips_host)
         self.table_status = QLabel()
         self.table_status.setObjectName('small-label')
         table_layout.addWidget(self.table_status)
@@ -673,6 +696,26 @@ class KnowledgeTab(QWidget):
         entry = current.data(Qt.ItemDataRole.UserRole) if current else None
         self._show_entry_detail(entry)
 
+    def _on_entry_double_clicked(self, item):
+        entry = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not isinstance(entry, dict):
+            return
+        title = str(entry.get('title') or '未命名')
+        if entry.get('content_type') == 'workbook_sheet':
+            QToolTip.showText(QCursor.pos(), f'已打开「{title}」，双击右侧任意单元格即可复制内容', self.entry_list)
+            return
+        text = str(entry.get('content') or '')
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
+        preview = ' '.join(text.split())
+        if len(preview) > 40:
+            preview = preview[:39] + '…'
+        toast = f'✓ 已复制「{title}」：{preview}'
+        QToolTip.showText(QCursor.pos(), toast, self.entry_list)
+        if hasattr(self, 'meta_label'):
+            self.meta_label.setText(toast)
+
     def _show_entry_detail(self, entry):
         same_sheet = entry and self._current and entry.get('id') == self._current.get('id')
         self._current = entry
@@ -717,6 +760,8 @@ class KnowledgeTab(QWidget):
                 self.filter_column.blockSignals(True)
                 self.filter_column.setCurrentIndex(0)
                 self.filter_column.blockSignals(False)
+                self._column_filter_rules = []
+                self._rebuild_filter_chips()
             self._show_workbook(entry)
             self.content_stack.setCurrentIndex(1)
             self.copy_btn.setText('复制表格')
@@ -942,7 +987,92 @@ class KnowledgeTab(QWidget):
             if visual != position:
                 header.moveSection(visual, position)
 
+    def _add_column_filter_rule(self):
+        kw = self.sheet_filter.text().strip()
+        if not kw:
+            return
+        col_data = self.filter_column.currentData()
+        col_idx = -1 if col_data is None else int(col_data)
+        col_label = self.filter_column.currentText() or '全部列'
+        rule = (col_idx, col_label, kw)
+        if rule not in self._column_filter_rules:
+            self._column_filter_rules.append(rule)
+        self.sheet_filter.blockSignals(True)
+        self.sheet_filter.clear()
+        self.sheet_filter.blockSignals(False)
+        self._rebuild_filter_chips()
+        self._apply_sheet_filter()
+
+    def _remove_column_filter_rule(self, index: int):
+        if 0 <= index < len(self._column_filter_rules):
+            self._column_filter_rules.pop(index)
+            self._rebuild_filter_chips()
+            self._apply_sheet_filter()
+
+    def _clear_all_sheet_filters(self):
+        self._column_filter_rules = []
+        self.sheet_filter.blockSignals(True)
+        self.sheet_filter.clear()
+        self.sheet_filter.blockSignals(False)
+        self._rebuild_filter_chips()
+        self._apply_sheet_filter()
+
+    def _rebuild_filter_chips(self):
+        while self._filter_chips_layout.count() > 1:
+            item = self._filter_chips_layout.takeAt(0)
+            w = item.widget() if item is not None else None
+            if w is not None:
+                w.hide()
+                w.deleteLater()
+        for idx, (_col_idx, col_label, kw) in enumerate(self._column_filter_rules):
+            chip = QPushButton(f'{col_label} 包含 “{kw}”  ×')
+            chip.setObjectName('req-stat-chip')
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setToolTip('点击移除此筛选条件')
+            chip.clicked.connect(lambda _checked=False, i=idx: self._remove_column_filter_rule(i))
+            self._filter_chips_layout.insertWidget(idx, chip)
+        has_rules = bool(self._column_filter_rules)
+        self._filter_chips_host.setVisible(has_rules)
+        self.clear_filters_btn.setVisible(has_rules or bool(self.sheet_filter.text().strip()))
+
+    def _parse_inline_sheet_filters(self, raw_text: str, default_col: int, header_row: list) -> list[tuple[int, str]]:
+        """解析输入框条件：支持空格分隔的「列名:关键字」/「列字母:关键字」多列 AND 筛选。"""
+        text = str(raw_text or '').strip()
+        if not text:
+            return []
+        col_lookup: dict[str, int] = {}
+        for idx in range(len(header_row)):
+            col_lookup[self._column_name(idx).casefold()] = idx
+            title = str(header_row[idx] or '').strip()
+            if title:
+                col_lookup[title.casefold()] = idx
+        tokens = [t for t in text.split() if t]
+        # 若任意 token 符合 列名:值 / 列名：值，按多列条件解析
+        has_pair = any((':' in t or '：' in t) for t in tokens)
+        if not has_pair:
+            return [(default_col, text.casefold())]
+        parsed: list[tuple[int, str]] = []
+        for tok in tokens:
+            sep = ':' if ':' in tok else ('：' if '：' in tok else '')
+            if sep:
+                left, right = tok.split(sep, 1)
+                left_k = left.strip().casefold()
+                val = right.strip().casefold()
+                if not val:
+                    continue
+                if left_k in col_lookup:
+                    parsed.append((col_lookup[left_k], val))
+                else:
+                    # 允许表头部分匹配
+                    matched_col = next((i for name, i in col_lookup.items() if left_k and left_k in name), None)
+                    parsed.append((default_col if matched_col is None else matched_col, val))
+            else:
+                parsed.append((default_col, tok.casefold()))
+        return parsed
+
     def _apply_sheet_filter(self, *_args):
+        if hasattr(self, 'clear_filters_btn'):
+            self.clear_filters_btn.setVisible(bool(self._column_filter_rules) or bool(self.sheet_filter.text().strip()))
         if self._current and self._current.get('content_type') == 'workbook_sheet':
             self._filter_workbook_rows(self._current)
 
@@ -964,16 +1094,26 @@ class KnowledgeTab(QWidget):
             visible = workbook_visible_row_indexes(entry, query, display_rows=rows)
             visible_set = None if visible is None else set(visible)
             manually_hidden = self._hidden_rows.get(entry.get('id'), set())
-            filter_text = self.sheet_filter.text().strip().casefold()
             filter_column = self.filter_column.currentData()
+            default_col = -1 if filter_column is None else int(filter_column)
+            header_row = rows[0] if rows else []
+            conditions: list[tuple[int, str]] = [
+                (col_idx, kw.casefold()) for col_idx, _label, kw in getattr(self, '_column_filter_rules', [])
+            ]
+            conditions.extend(self._parse_inline_sheet_filters(self.sheet_filter.text(), default_col, header_row))
             shown = 0
             terms = [term.casefold() for term in query.split() if term.strip()]
             first_match = None
             for row_index, row in enumerate(rows):
-                cells = row if filter_column in (-1, None) else row[filter_column:filter_column + 1]
+                matched_all = True
+                for col_idx, needle in conditions:
+                    cells = row if col_idx < 0 else row[col_idx:col_idx + 1]
+                    if not any(needle in str(cell).casefold() for cell in cells):
+                        matched_all = False
+                        break
                 row_visible = (row_index != 0 and row_index not in manually_hidden
                                and (visible_set is None or row_index in visible_set)
-                               and (not filter_text or any(filter_text in cell.casefold() for cell in cells)))
+                               and matched_all)
                 self.table_view.setRowHidden(row_index, not row_visible)
                 self.table_view.frozen.setRowHidden(row_index, not row_visible)
                 shown += bool(row_visible)
@@ -992,7 +1132,8 @@ class KnowledgeTab(QWidget):
                 self.table_view.setCurrentItem(first_match)
                 self.table_view.scrollToItem(first_match, QAbstractItemView.ScrollHint.PositionAtCenter)
                 self.table_view.clearSelection()
-            self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行；双击复制单元格，点击表头排序')
+            cond_note = f' · 已启用 {len(conditions)} 个筛选条件' if conditions else ''
+            self.table_status.setText(f'显示 {shown} / {max(0, len(rows) - 1)} 行{cond_note}；双击复制单元格，点击表头排序')
         finally:
             self.table_view.setUpdatesEnabled(True)
             self.table_view.frozen.setUpdatesEnabled(True)
@@ -1024,7 +1165,16 @@ class KnowledgeTab(QWidget):
 
     def _copy_table_cell(self, row, column):
         if 0 <= row < len(self._workbook_rows) and 0 <= column < self.table_view.columnCount():
-            QApplication.clipboard().setText(self._projected_cell(row, column))
+            value = self._projected_cell(row, column)
+            QApplication.clipboard().setText(value)
+            preview = ' '.join(str(value or '').split())
+            if len(preview) > 48:
+                preview = preview[:47] + '…'
+            cell_ref = f'{self._column_name(column)}{self._source_row_index(row) + 1}'
+            toast_text = f'✓ 已复制 ({cell_ref})：{preview}' if preview else f'✓ 已复制空单元格 ({cell_ref})'
+            QToolTip.showText(QCursor.pos(), toast_text, self.table_view)
+            if hasattr(self, 'table_status'):
+                self.table_status.setText(toast_text)
 
     def _projected_cell(self, row, column):
         if 0 <= row < len(self._workbook_rows) and 0 <= column < len(self._workbook_rows[row]):

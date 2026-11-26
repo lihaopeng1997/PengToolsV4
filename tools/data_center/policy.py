@@ -347,7 +347,7 @@ def decide_tool_call(call: ToolCall | Mapping[str, Any], context: RunContext) ->
     return DataCenterPolicy().decide(call, context)
 
 
-_SEARCH_KEYWORD_ALIASES = ("table", "table_name", "object_name", "object", "name", "query")
+_SEARCH_KEYWORD_ALIASES = ("table", "table_name", "object_name", "object", "name", "query", "pattern", "search", "filter", "q")
 
 
 def _relax_model_arguments(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -367,26 +367,46 @@ def _relax_model_arguments(name: str, args: dict[str, Any]) -> dict[str, Any]:
                     break
         for alias in _SEARCH_KEYWORD_ALIASES:
             args.pop(alias, None)
-        args.pop("schema", None)
-        args.pop("schema_name", None)
+        for benign in ("schema", "schema_name", "limit", "page_size", "max_results", "offset"):
+            args.pop(benign, None)
         kind = args.pop("kind", None)
+        if kind is None:
+            kind = args.pop("object_type", None)
+        if kind is None:
+            kind = args.pop("type", None)
         kinds = args.get("kinds", kind)
         if isinstance(kinds, str):
             args["kinds"] = [part.strip() for part in kinds.replace("，", ",").split(",") if part.strip()]
         elif kind is not None and "kinds" not in args:
             args["kinds"] = kind
+    elif name == "describe_object":
+        for benign in ("limit", "page_size", "schema", "schema_name"):
+            args.pop(benign, None)
+        ff = args.get("field_filter")
+        if isinstance(ff, str):
+            args["field_filter"] = [part.strip() for part in ff.replace("，", ",").split(",") if part.strip()]
     elif name == "query_readonly":
         if "sql" not in args:
-            for alias in ("query", "statement"):
+            for alias in ("query", "statement", "sql_text"):
                 value = args.get(alias)
                 if isinstance(value, str) and value.strip():
                     args["sql"] = value
                     break
-        args.pop("query", None)
-        args.pop("statement", None)
+        for alias in ("query", "statement", "sql_text"):
+            args.pop(alias, None)
+        if "parameters" not in args and "params" in args:
+            args["parameters"] = args.pop("params")
+        else:
+            args.pop("params", None)
+        if "row_limit" not in args and "limit" in args:
+            args["row_limit"] = args.pop("limit")
+        else:
+            args.pop("limit", None)
         limit = args.get("row_limit")
         if isinstance(limit, str) and limit.strip().isdigit():
-            args["row_limit"] = int(limit.strip())
+            limit = int(limit.strip())
+        if isinstance(limit, int) and not isinstance(limit, bool):
+            args["row_limit"] = max(1, min(100, limit))
     return args
 
 

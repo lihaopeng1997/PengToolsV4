@@ -925,8 +925,23 @@ class ModelAdapter:
         }
         if provider == "deepseek":
             body["thinking"] = {"type": "enabled"}
-        if capability is AgentModelCapability.NATIVE_TOOLS and request.tools:
+        if capability is AgentModelCapability.NATIVE_TOOLS and request.tools and not getattr(self, "_runtime_tools_fallback", False):
             body["tools"] = [dict(tool) for tool in request.tools]
+        elif capability is AgentModelCapability.NATIVE_TOOLS and request.tools and getattr(self, "_runtime_tools_fallback", False):
+            # Runtime HTTP 400/422 fallback: omit native `tools` field and inject a concise
+            # text-protocol reminder so the outer text-tool-call recovery adapter can proceed.
+            from tools.agent_core.text_protocol import build_text_tool_instruction
+            fallback_hint = build_text_tool_instruction(request.tools)
+            if fallback_hint:
+                if messages and messages[0].get("role") == "system":
+                    existing_sys = str(messages[0].get("content") or "")
+                    if "<tool_call>" not in existing_sys:
+                        messages[0] = {
+                            "role": "system",
+                            "content": f"{existing_sys}\n\n{fallback_hint}".strip(),
+                        }
+                else:
+                    messages.insert(0, {"role": "system", "content": fallback_hint})
         elif capability is AgentModelCapability.STRICT_JSON:
             body["response_format"] = _strict_response_format(self.config)
         output_tokens = request.max_output_tokens
@@ -1454,6 +1469,21 @@ class ModelAdapter:
                         elapsed_ms=int((time.monotonic() - started) * 1000))
         return turn
 
+    @staticmethod
+    def _is_tools_rejected_error(error: Exception) -> bool:
+        status = _status_code(error)
+        if status not in {400, 422}:
+            return False
+        msg = str(error or "").lower()
+        # Accept explicit tool/function rejection messages or bare HTTP 400/422 gateway errors
+        if not msg or msg.strip() in {f"model gateway http {status}", "model transport failed"}:
+            return True
+        keywords = (
+            "tool", "function", "schema", "unsupported", "not support",
+            "invalid", "unknown field", "unrecognized", "extra_forbidden",
+        )
+        return any(token in msg for token in keywords)
+
     def _complete_turn(
         self,
         request: AgentTurnRequest,
@@ -1488,6 +1518,21 @@ class ModelAdapter:
                 raise
             except _AttemptError as wrapped:
                 error = wrapped.error
+                if (
+                    not wrapped.started
+                    and not getattr(self, "_runtime_tools_fallback", False)
+                    and self.effective_capability is AgentModelCapability.NATIVE_TOOLS
+                    and request.tools
+                    and self._is_tools_rejected_error(error)
+                    and time.monotonic() < deadline
+                ):
+                    self._runtime_tools_fallback = True
+                    log_agent_event(
+                        'model_tools_fallback',
+                        run_id=request.context.run_id,
+                        status_code=_status_code(error),
+                    )
+                    continue
                 if (
                     not wrapped.started
                     and attempts < self.retry_count
@@ -1700,7 +1745,15 @@ class UrlLibStreamingTransport:
                         continue
                 yield chunk
         except urllib.error.HTTPError as exc:
-            raise ModelTransportError(f"model gateway HTTP {exc.code}", status_code=exc.code) from exc
+            detail = ""
+            try:
+                raw_err = exc.read()
+                if raw_err:
+                    detail = intranet_llm.redact_llm_error(raw_err.decode("utf-8", errors="replace")[:240])
+            except Exception:
+                detail = ""
+            message = f"model gateway HTTP {exc.code}" + (f": {detail}" if detail else "")
+            raise ModelTransportError(message, status_code=exc.code) from exc
         except urllib.error.URLError as exc:
             raise ModelTransportError("cannot connect to intranet model", retryable=True) from exc
         except ModelTransportError:

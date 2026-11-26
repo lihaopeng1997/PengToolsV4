@@ -133,6 +133,7 @@ class DataCenterWorkbenchAgent(QWidget):
         *,
         selection_provider: Callable[[], Mapping[str, Any] | None],
         put_sql: Callable[[str], None],
+        run_sql: Callable[[str], None] | None = None,
         language: str = "zh",
         profile_host: DataCenterProfileHost | None = None,
         model_transport: Any = None,
@@ -146,6 +147,7 @@ class DataCenterWorkbenchAgent(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._selection_provider = selection_provider
         self._put_sql = put_sql
+        self._run_sql = run_sql
         self._profile_host = profile_host or DataCenterProfileHost()
         self._model_transport = model_transport
         self._relational_connector = relational_connector
@@ -172,56 +174,64 @@ class DataCenterWorkbenchAgent(QWidget):
         self._schema_catalog_key = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
-        row = QHBoxLayout()
+        root.setContentsMargins(6, 4, 6, 6)
+        root.setSpacing(4)
+        self.status_label = QLabel(self)
+        self.status_label.setObjectName("dc-agent-status-strip")
+        self.status_label.setWordWrap(False)
+        self.status_label.setMinimumWidth(0)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.status_label.setFixedHeight(20)
+
+        self.agent_panel = DataCenterAgentPanel(self, target="尚未固定目标", model="尚未选择模型")
+        self.agent_panel.prompt_input.setEnabled(False)
+        self.agent_panel.set_compact_rail(True)
+        self.agent_scroll = self.agent_panel.body_scroll
+
+        # DBX 风格：将 Schema、模式与模型选择器整合进底部统一输入卡片，顶部不再堆叠多层大卡片
+        self.schema_label = QLabel("Schema", self)
+        self.schema_label.setObjectName("field-hint")
+        self.schema_combo = QComboBox(self)
+        self.schema_combo.setObjectName("dc-agent-mini-combo")
+        self.schema_combo.setMinimumWidth(0)
+        self.schema_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.schema_combo.setMinimumContentsLength(6)
+        self.schema_combo.setToolTip("只允许查询所选用户 / Schema 内的表；切换范围将开始新的上下文。")
+        self.agent_panel._composer_top_slot.addWidget(self.schema_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.agent_panel._composer_top_slot.addWidget(self.schema_combo, 1, Qt.AlignmentFlag.AlignVCenter)
+
+        row = self.agent_panel._composer_bottom_slot
         self.mode_combo = QComboBox(self)
-        self.mode_combo.addItem("Agent · 只读查数" if language == "zh" else "Agent · read-only", "query")
-        self.mode_combo.addItem("Ask · 只写 SQL" if language == "zh" else "Ask · SQL only", "draft")
+        self.mode_combo.setObjectName("dc-agent-mini-combo")
+        self.mode_combo.addItem("Agent · 查数" if language == "zh" else "Agent", "query")
+        self.mode_combo.addItem("Ask · 写SQL" if language == "zh" else "Ask", "draft")
+        self.mode_combo.setMinimumWidth(98)
         self.model_combo = QComboBox(self)
-        # 大字号/窄工作台下模型名可收缩（悬停看全名），不把整个工作台撑出 960
+        self.model_combo.setObjectName("dc-agent-mini-combo")
         self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.model_combo.setMinimumContentsLength(6)
-        self.model_combo.setMinimumWidth(120)
+        self.model_combo.setMinimumContentsLength(5)
+        self.model_combo.setMinimumWidth(92)
         self.model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.refresh_button = QPushButton("↻", self)
         apply_button(self.refresh_button, "ghost", compact=True)
-        self.refresh_button.setFixedWidth(32)
+        self.refresh_button.setFixedSize(26, 26)
         self.refresh_button.setToolTip("刷新模型列表" if language == "zh" else "Refresh models")
         self.refresh_button.clicked.connect(self.refresh_models)
-        # DBX 式：模式（Agent / Ask）、模型与刷新合成一行，放到输入框下方
         self._controls_row = row
-        row.addWidget(self.mode_combo, 0)
-        row.addWidget(self.model_combo, 1)
-        row.addWidget(self.refresh_button, 0)
-        self.status_label = QLabel(self)
-        self.status_label.setObjectName("ops-safety-note")
-        self.status_label.setWordWrap(True)
-        root.addWidget(self.status_label)
-        scope_row = QHBoxLayout()
-        self.schema_label = QLabel("查询范围 · Schema", self)
-        self.schema_combo = QComboBox(self)
-        self.schema_combo.setMinimumWidth(0)
-        self.schema_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.schema_combo.setMinimumContentsLength(8)
-        self.schema_combo.setToolTip("只允许查询所选用户 / Schema 内的表；切换范围将开始新的上下文。")
-        scope_row.addWidget(self.schema_label)
-        scope_row.addWidget(self.schema_combo, 1)
-        root.addLayout(scope_row)
-        self.agent_panel = DataCenterAgentPanel(self, target="尚未固定目标", model="尚未选择模型")
+        row.addWidget(self.mode_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.model_combo, 1, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.refresh_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self._set_production_panel_copy()
-        self.agent_panel.prompt_input.setEnabled(False)
-        self.agent_panel.set_compact_rail(True)
-        # One transcript scrollbar; keep the composer anchored below it.
-        self.agent_scroll = self.agent_panel.body_scroll
+
         root.addWidget(self.agent_panel, 1)
-        root.addLayout(row)
+        root.addWidget(self.status_label, 0)
 
         self.mode_combo.currentIndexChanged.connect(self._on_selection_changed)
         self.model_combo.currentIndexChanged.connect(self._on_selection_changed)
         self.schema_combo.currentIndexChanged.connect(self._on_selection_changed)
         self.agent_panel.new_conversation_requested.connect(self._on_new_conversation)
         self.agent_panel.put_sql_requested.connect(self._on_put_sql_requested)
+        self.agent_panel.run_sql_requested.connect(self._on_run_sql_requested)
         self.agent_panel.prompt_send_requested.connect(self._on_prompt_requested)
 
         self.refresh_models()
@@ -353,15 +363,12 @@ class DataCenterWorkbenchAgent(QWidget):
         elif self._snapshot is not None:
             mode = str(self._snapshot.context.intent or "query")
         else:
-            mode = str(self.mode_combo.currentData() or "query")
+            combo = getattr(self, "mode_combo", None)
+            mode = str(combo.currentData() or "query") if combo is not None else "query"
         self.agent_panel.set_display_context(self._language, mode)
 
     def _set_production_panel_copy(self) -> None:
-        self.agent_panel.setToolTip(
-            "数据中心只读 Agent（独立只读连接）"
-            if self._language == "zh" else
-            "Data-center read-only Agent (dedicated read-only connection)"
-        )
+        self.agent_panel.setToolTip("")
         self._sync_panel_display_context()
 
     def refresh_models(self) -> None:
@@ -511,12 +518,13 @@ class DataCenterWorkbenchAgent(QWidget):
             self._apply_last_run_status()
         elif self._last_result_target is None:
             self._show_result_target(snapshot)
+        schema_snapshot = selection.get("schema_snapshot") if isinstance(selection, Mapping) else None
         controller = DataCenterAgentController(
             self.agent_panel,
             snapshot,
             messages=self._conversation_messages,
-            runtime_factory=lambda fixed_context, fixed_model=model_choice, fixed_target=connection_choice: self._build_runtime(
-                fixed_context, fixed_model, fixed_target
+            runtime_factory=lambda fixed_context, fixed_model=model_choice, fixed_target=connection_choice, fixed_schema=schema_snapshot: self._build_runtime(
+                fixed_context, fixed_model, fixed_target, fixed_schema
             ),
         )
         generation = self._conversation_generation
@@ -592,45 +600,59 @@ class DataCenterWorkbenchAgent(QWidget):
             f"Running with fixed target: {self._display_target_label(snapshot.target, snapshot.context.intent, internal_unbound=not snapshot.context.connection_id and snapshot.context.intent != 'draft')} · {snapshot.model}"
         )
 
+    def _can_handoff_sql(self, *, action_zh: str = "放入编辑器", action_en: str = "inserting") -> bool:
+        result_target = self._last_result_target
+        if result_target is None or not result_target.connection_id:
+            return True
+        selection = self._safe_selection()
+        profile = selection.get("profile") if isinstance(selection, Mapping) else None
+        if not isinstance(profile, Mapping):
+            self._set_status(
+                f"生成内容来自 {result_target.target_label}；当前没有匹配连接，未{action_zh}。"
+                if self._language == "zh" else
+                f"Generated content belongs to {result_target.target_label}; no matching connection is selected, skipped {action_en}."
+            )
+            return False
+        try:
+            current = self._profile_host.capture_connection(
+                profile,
+                database=str(selection.get("database") or "") or None,
+                schema_allowlist=tuple(selection.get("schema_allowlist") or ()),
+            )
+        except ProfileHostError:
+            current = None
+        if current is None or (
+            current.connection_id != result_target.connection_id
+            or current.revision != result_target.profile_revision
+            or current.provider != result_target.provider
+            or current.mode != result_target.mode
+            or current.database != result_target.database
+            or tuple(current.schema_allowlist) != result_target.schema_allowlist
+        ):
+            self._set_status(
+                f"生成内容属于 {result_target.target_label}；请切回相同连接和范围后再{action_zh}，当前未修改编辑器。"
+                if self._language == "zh" else
+                f"Generated content belongs to {result_target.target_label}; switch back to the same connection and scope before {action_en}. The editor was not changed."
+            )
+            return False
+        return True
+
     @pyqtSlot(str)
     def _on_put_sql_requested(self, text: str) -> None:
         value = str(text or "").strip()
-        if not value:
+        if not value or not self._can_handoff_sql(action_zh="放入编辑器", action_en="inserting"):
             return
-        result_target = self._last_result_target
-        if result_target is not None and result_target.connection_id:
-            selection = self._safe_selection()
-            profile = selection.get("profile") if isinstance(selection, Mapping) else None
-            if not isinstance(profile, Mapping):
-                self._set_status(
-                    f"生成内容来自 {result_target.target_label}；当前没有匹配连接，未放入编辑器。"
-                    if self._language == "zh" else
-                    f"Generated content belongs to {result_target.target_label}; no matching connection is selected, so it was not inserted."
-                )
-                return
-            try:
-                current = self._profile_host.capture_connection(
-                    profile,
-                    database=str(selection.get("database") or "") or None,
-                    schema_allowlist=tuple(selection.get("schema_allowlist") or ()),
-                )
-            except ProfileHostError:
-                current = None
-            if current is None or (
-                current.connection_id != result_target.connection_id
-                or current.revision != result_target.profile_revision
-                or current.provider != result_target.provider
-                or current.mode != result_target.mode
-                or current.database != result_target.database
-                or tuple(current.schema_allowlist) != result_target.schema_allowlist
-            ):
-                self._set_status(
-                    f"生成内容属于 {result_target.target_label}；请切回相同连接和范围后再放入，当前未修改编辑器。"
-                    if self._language == "zh" else
-                    f"Generated content belongs to {result_target.target_label}; switch back to the same connection and scope before inserting. The editor was not changed."
-                )
-                return
         self._put_sql(value)
+
+    @pyqtSlot(str)
+    def _on_run_sql_requested(self, text: str) -> None:
+        value = str(text or "").strip()
+        if not value or not self._can_handoff_sql(action_zh="执行", action_en="executing"):
+            return
+        if callable(self._run_sql):
+            self._run_sql(value)
+        else:
+            self._put_sql(value)
 
     def _safe_selection(self) -> Mapping[str, Any] | None:
         try:
@@ -705,6 +727,7 @@ class DataCenterWorkbenchAgent(QWidget):
         context: RunContext,
         model_choice: ModelChoice,
         connection_choice: ConnectionChoice | None,
+        schema_snapshot: Mapping[str, Any] | None = None,
     ) -> _RuntimeOwner:
         # This callback is invoked only by DataCenterAgentController's QThread.
         model_config = self._profile_host.load_model_config(
@@ -783,6 +806,7 @@ class DataCenterWorkbenchAgent(QWidget):
             relational_host=relational_host,
             nosql_host=nosql_host,
             nosql_factory=nosql_factory,
+            local_schema_snapshot=schema_snapshot,
         )
         return _RuntimeOwner(runtime, nosql_factory)
 

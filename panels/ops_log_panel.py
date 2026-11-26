@@ -1058,9 +1058,9 @@ class OpsLogPanel(QWidget):
         self._harness_allowed_cmds: list[str] = []
         self._executor = ThreadPoolExecutor(max_workers=2)
         self._bridge = _ExportBridge(self)
-        self._bridge.result_ready.connect(self._on_result_row)
-        self._bridge.finished.connect(self._on_export_finished)
-        self._bridge.failed.connect(self._on_export_failed)
+        self._bridge.result_ready.connect(self._on_result_row, Qt.ConnectionType.QueuedConnection)
+        self._bridge.finished.connect(self._on_export_finished, Qt.ConnectionType.QueuedConnection)
+        self._bridge.failed.connect(self._on_export_failed, Qt.ConnectionType.QueuedConnection)
         self._setup_ui()
         self.set_language(language)
         self._reload_servers()
@@ -1333,6 +1333,28 @@ class OpsLogPanel(QWidget):
             return sess['widget']
         w = self.term_tabs.currentWidget() if hasattr(self, 'term_tabs') else None
         return w if w is not None else getattr(self, 'terminal', None)
+
+    def _focus_current_terminal(self):
+        """聚焦当前终端：回到底部、同步 PTY 尺寸并立即点亮光标。"""
+        term = self._current_terminal()
+        if term is None:
+            return
+        view = getattr(term, 'view', term)
+        try:
+            sb = view.verticalScrollBar()
+            if sb is not None:
+                sb.setValue(sb.maximum())
+        except Exception:
+            pass
+        try:
+            view.setFocus(Qt.FocusReason.OtherFocusReason)
+            QTimer.singleShot(0, lambda v=view: v.setFocus(Qt.FocusReason.OtherFocusReason))
+            if hasattr(view, '_apply_pty_resize'):
+                view._apply_pty_resize()
+            if hasattr(view, 'viewport'):
+                view.viewport().update()
+        except Exception:
+            pass
 
     def _save_session_at(self, index: int):
         if index is None or index < 0 or index >= len(getattr(self, '_term_sessions', [])):
@@ -1827,7 +1849,7 @@ class OpsLogPanel(QWidget):
                 )
         self.log_file_combo.setCurrentIndex(pick)
         self.log_file_combo.blockSignals(False)
-        size_pick_combo(self.log_file_combo)
+        size_combo(self.log_file_combo, fill=True)
         self._log_files_loading = False
         self._refresh_output_context()
 
@@ -1896,7 +1918,7 @@ class OpsLogPanel(QWidget):
             if p:
                 self.service_combo.addItem('默认' if self.language == 'zh' else 'Default', p)
         self.service_combo.blockSignals(False)
-        size_pick_combo(self.service_combo)
+        size_combo(self.service_combo, fill=True)
         if self.service_combo.count():
             self.service_combo.setCurrentIndex(0)
             self._on_service_combo_changed()
@@ -2046,7 +2068,7 @@ class OpsLogPanel(QWidget):
         self.server_title.setObjectName('section-title')
         pick_row.addWidget(self.server_title)
         self.server_combo = QComboBox()
-        size_pick_combo(self.server_combo)
+        size_combo(self.server_combo, fill=True)
         self.server_combo.currentIndexChanged.connect(self._on_server_combo_changed)
         self.server_combo.setMinimumWidth(0)
         pick_row.addStretch(1)
@@ -2093,7 +2115,7 @@ class OpsLogPanel(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         self.service_combo = QComboBox()
-        size_pick_combo(self.service_combo)
+        size_combo(self.service_combo, fill=True)
         self.service_combo.currentIndexChanged.connect(self._on_service_combo_changed)
         # 可绑目录：路径框 + 刷新日志列表
         path_wrap = QWidget()
@@ -2111,7 +2133,7 @@ class OpsLogPanel(QWidget):
         path_l.addWidget(self.refresh_logs_btn)
         # 目录下的 .log 文件下拉（按日期新→旧）
         self.log_file_combo = QComboBox()
-        size_pick_combo(self.log_file_combo)
+        size_combo(self.log_file_combo, fill=True)
         self.log_file_combo.currentIndexChanged.connect(self._on_log_file_combo_changed)
         self.keyword_edit = QLineEdit()
         size_line(self.keyword_edit, 'std')
@@ -2154,12 +2176,15 @@ class OpsLogPanel(QWidget):
         self.session_export_btn = QPushButton()
         apply_button(self.session_export_btn, 'secondary', compact=True, icon='export', icon_size=16)
         self.session_export_btn.clicked.connect(self._export_current_session)
-        # 一行：主动作「终端截取」在前，其余等宽排开
+        # 一行紧凑工具条：不再整行等比撑大成巨型按钮
         from PyQt6.QtWidgets import QSizePolicy as _SP
         for b in (self.run_grep_btn, self.tail_btn, self.preview_btn, self.session_export_btn):
-            b.setMinimumWidth(0)
-            b.setSizePolicy(_SP.Policy.Expanding, b.sizePolicy().verticalPolicy())
-            qbtn.addWidget(b, 1)
+            b.setObjectName('ops-compact-btn')
+            b.setFixedHeight(26)
+            b.setSizePolicy(_SP.Policy.Maximum, _SP.Policy.Fixed)
+            qbtn.addWidget(b, 0)
+        self.run_grep_btn.setProperty('primaryCompact', True)
+        qbtn.addStretch(1)
         sess_l.addLayout(qbtn)
         self.stream_note = QLabel()
         self.stream_note.setObjectName('field-hint')
@@ -2218,18 +2243,19 @@ class OpsLogPanel(QWidget):
         apply_button(self.use_path_btn, 'secondary', compact=True)
         self.use_path_btn.setObjectName('remote-use-btn')
         self.use_path_btn.clicked.connect(self._use_selected_as_log_path)
-        # 一行：上级 / 刷新(图标) / 打开 / 下载 / 选用
+        # 一行紧凑工具按钮：↑ 上级 / ↻ / 打开 / ↓ 下载 / ✓ 选用（不再铺满整行）
         for b in (
             self.path_up_btn, self.path_refresh_btn, self.path_go_btn,
             self.download_btn, self.use_path_btn,
         ):
-            b.setMinimumWidth(0)
+            b.setObjectName('ops-compact-btn')
+            b.setFixedHeight(26)
             if b is self.path_refresh_btn:
-                b.setFixedWidth(34)
-                path_row.addWidget(b)
+                b.setFixedWidth(28)
             else:
-                b.setSizePolicy(QSizePolicy.Policy.Expanding, b.sizePolicy().verticalPolicy())
-                path_row.addWidget(b, 1)
+                b.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            path_row.addWidget(b, 0)
+        path_row.addStretch(1)
         rb.addLayout(path_row)
         self.remote_tree = QTreeWidget()
         self.remote_tree.setObjectName('ops-remote-tree')
@@ -2420,9 +2446,7 @@ class OpsLogPanel(QWidget):
         self.focus_term_btn = QPushButton()
         apply_button(self.focus_term_btn, 'ghost', compact=True)
         self.focus_term_btn.setObjectName('terminal-focus-btn')
-        self.focus_term_btn.clicked.connect(
-            lambda: self._current_terminal() and self._current_terminal().setFocus()
-        )
+        self.focus_term_btn.clicked.connect(self._focus_current_terminal)
         self.clear_console_btn = QPushButton()
         apply_button(self.clear_console_btn, 'ghost', compact=True)
         self.clear_console_btn.setObjectName('terminal-clear-btn')
@@ -2865,7 +2889,7 @@ class OpsLogPanel(QWidget):
             if idx >= 0:
                 self.server_combo.setCurrentIndex(idx)
         self.server_combo.blockSignals(False)
-        size_pick_combo(self.server_combo)
+        size_combo(self.server_combo, fill=True)
 
     def _start_guided_tour(self):
         zh = self.language == 'zh'
@@ -2971,18 +2995,18 @@ class OpsLogPanel(QWidget):
             self.manage_cat_btn.setText('分类' if zh else 'Categories')
             self.manage_cat_btn.setToolTip('管理服务器分类（集成/模拟/自定义）' if zh else 'Manage server categories')
         self._fill_category_filter(preserve=True)
-        self.path_up_btn.setText('上级' if zh else 'Up')
+        self.path_up_btn.setText('↑ 上级' if zh else '↑ Up')
         self.path_up_btn.setToolTip('返回上一级目录' if zh else 'Parent directory')
         self.path_go_btn.setText('打开' if zh else 'Go')
         self.path_go_btn.setToolTip('打开上方路径中的目录' if zh else 'Open path')
         self.path_refresh_btn.setToolTip('刷新当前目录' if zh else 'Refresh')
-        self.download_btn.setText('下载' if zh else 'Download')
+        self.download_btn.setText('↓ 下载' if zh else '↓ Save')
         self.download_btn.setToolTip(
             '把选中的文件下载到本机。文件夹请双击进入后再选文件'
             if zh else
             'Download the selected file. Open a folder and pick a file'
         )
-        self.use_path_btn.setText('选用' if zh else 'Use')
+        self.use_path_btn.setText('✓ 选用' if zh else '✓ Use')
         self.use_path_btn.setToolTip(
             '目录：绑定为日志目录并刷新文件列表；文件：绑定父目录并选中该日志'
             if zh else
@@ -2994,10 +3018,10 @@ class OpsLogPanel(QWidget):
             'Double-click folder/file; Use to bind log dir or file.'
         )
         self.preview_btn.setText('预览' if zh else 'Preview')
-        self.run_grep_btn.setText('终端截取' if zh else 'Grep')
+        self.run_grep_btn.setText('▷ 截取' if zh else '▷ Grep')
         self.tail_btn.setText('看尾部' if zh else 'Tail')
         if hasattr(self, 'session_export_btn'):
-            self.session_export_btn.setText('导出日志' if zh else 'Export')
+            self.session_export_btn.setText('导出' if zh else 'Export')
             self.session_export_btn.setToolTip(
                 '按当前服务/日志文件/关键字导出到本地（关键字建文件夹，文件名为 IP-服务.log）'
                 if zh else
@@ -4663,7 +4687,7 @@ class OpsLogPanel(QWidget):
             msg_item = self.result_table.item(row, 2) if row >= 0 else None
             self.preview_title.setText(msg_item.text() if msg_item is not None else '')
             return
-        limit = 2 * 1024 * 1024
+        limit = 256 * 1024
         try:
             with open(path, 'rb') as stream:
                 raw = stream.read(limit + 1)
@@ -4675,7 +4699,7 @@ class OpsLogPanel(QWidget):
         self.result_preview.setPlainText(text)
         lines = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
         name = os.path.basename(path)
-        suffix = ('（仅显示前 2MB）' if zh else ' (first 2MB)') if truncated else ''
+        suffix = ('（仅预览前 256KB，完整内容双击打开本地文件）' if zh else ' (first 256KB)') if truncated else ''
         self.preview_title.setText(f'{name} · {lines} 行{suffix}' if zh else f'{name} · {lines} lines{suffix}')
         self._highlight_preview_terms()
 
@@ -4693,7 +4717,7 @@ class OpsLogPanel(QWidget):
             if not term:
                 continue
             cursor = QTextCursor(doc)
-            while len(selections) < 3000:
+            while len(selections) < 300:
                 cursor = doc.find(term, cursor, QTextDocument.FindFlag(0))
                 if cursor.isNull():
                     break
@@ -4813,6 +4837,9 @@ class OpsLogPanel(QWidget):
         case_i = bool(cap.get('case_insensitive', True))
         self._persist_settings_from_ui()
         self._running = True
+        self._capture_terms = [keyword] + [k for k in extras if k]
+        self._result_rows = {}
+        self._preview_has_hits = False
         if hasattr(self, 'session_export_btn'):
             self.session_export_btn.setEnabled(False)
         if hasattr(self, 'export_btn'):
@@ -4823,7 +4850,10 @@ class OpsLogPanel(QWidget):
             self.result_table.setRowCount(0)
         if hasattr(self, 'send_to_ai_btn'):
             self.send_to_ai_btn.setEnabled(False)
-        self.status_label.setText('正在导出当前日志…' if zh else 'Exporting current log…')
+        busy_msg = '正在后台流式导出日志…' if zh else 'Exporting current log…'
+        self.status_label.setText(busy_msg)
+        self.session_status.setText(busy_msg)
+        self._session_hint(busy_msg)
         bridge = self._bridge
         job = {
             'server': server,
@@ -5001,9 +5031,9 @@ class OpsLogPanel(QWidget):
             self.result_table.setItem(row, col, item)
         if ok and result.get('local_path') and hasattr(self, 'send_to_ai_btn'):
             self.send_to_ai_btn.setEnabled(True)
-        # 自动预览：优先第一个有命中的结果；全都 0 命中时至少展示第一个成功的
+        # 自动预览：仅在多机截取工作区可见时渲染预览，避免在隐藏面板上做大文本排版阻塞主线程
         hits = int(result.get('line_count') or 0) if ok else 0
-        if ok and result.get('local_path'):
+        if ok and result.get('local_path') and hasattr(self, 'capture_workspace') and self.capture_workspace.isVisible():
             if not self.result_preview.toPlainText() or (hits and not getattr(self, '_preview_has_hits', False)):
                 self._preview_has_hits = bool(hits)
                 self.result_table.setCurrentCell(row, 0)
@@ -5019,18 +5049,25 @@ class OpsLogPanel(QWidget):
         self._refresh_export_selection()
         ok_n = sum(1 for r in results if r.get('ok'))
         hits = sum(int(r.get('line_count') or 0) for r in results if r.get('ok'))
-        self.status_label.setText(
-            f'完成：{ok_n}/{len(results)} 成功' if self.language == 'zh' else f'Done: {ok_n}/{len(results)}'
-        )
+        done_msg = f'完成：{ok_n}/{len(results)} 成功' if self.language == 'zh' else f'Done: {ok_n}/{len(results)}'
+        self.status_label.setText(done_msg)
+        self._update_session_status_label()
         paths = [str(r.get('local_path') or '') for r in (results or []) if r.get('ok') and r.get('local_path')]
         if paths:
             parent = os.path.dirname(paths[0])
-            self.status_label.setText(
-                (f'完成 {ok_n}/{len(results)} · 共 {hits} 行 · {parent}'
-                 if self.language == 'zh' else
-                 f'Done {ok_n}/{len(results)} · {hits} lines · {parent}')
+            summary = (
+                f'完成 {ok_n}/{len(results)} · 共 {hits} 行 · {parent}'
+                if self.language == 'zh' else
+                f'Done {ok_n}/{len(results)} · {hits} lines · {parent}'
             )
-            self._offer_open_export(paths)
+            self.status_label.setText(summary)
+            self._session_hint(summary)
+            QTimer.singleShot(0, lambda p=list(paths): self._offer_open_export(p))
+        elif results:
+            first_err = next((str(r.get('message') or '') for r in results if not r.get('ok') and r.get('message')), '')
+            if first_err:
+                self._session_hint(first_err)
+                show_warning(self, 'PengTools', first_err)
 
     def _append_quick_keyword(self, term: str) -> None:
         """向多机截取关键字栏智能追加常用异常关键字（自动去重）。"""
@@ -5150,4 +5187,8 @@ class OpsLogPanel(QWidget):
                 self._close_session_resources(sess)
             except Exception:
                 pass
+        try:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
         super().closeEvent(event)

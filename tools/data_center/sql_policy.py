@@ -204,7 +204,13 @@ class SQLPolicy:
                 evidence=("argument=sql",),
             )
 
-        normalized_sql = sql.strip()
+        normalized_sql = sql.replace("\u00a0", " ").replace("\ufeff", "").strip()
+        if normalized_sql.endswith(";"):
+            # Strip a single trailing statement terminator when no other statement follows;
+            # genuine multi-statement SQL still contains an inner ';' and is rejected below.
+            stripped_semi = normalized_sql[:-1].rstrip()
+            if stripped_semi and not stripped_semi.endswith(";"):
+                normalized_sql = stripped_semi
         if _contains_executable_comment(normalized_sql):
             return SQLDecision(
                 False,
@@ -269,7 +275,8 @@ class SQLPolicy:
                 evidence=tuple(base_evidence + ["parser=sqlglot", "parse_success=false"]),
             )
 
-        if len(statements) != 1 or statements[0] is None:
+        statements = [stmt for stmt in statements if stmt is not None]
+        if len(statements) != 1:
             return SQLDecision(
                 False,
                 "MULTI_STATEMENT",

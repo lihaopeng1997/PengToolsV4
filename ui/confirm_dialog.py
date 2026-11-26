@@ -12,10 +12,10 @@ ask_close_action → (action, dont_ask) 或 None。
 """
 
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QVBoxLayout, QScrollArea,
+    QApplication, QCheckBox, QDialog, QFrame, QGraphicsDropShadowEffect,
+    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QScrollArea,
 )
 import os
 import random
@@ -58,7 +58,95 @@ def _dialog_is_zh(parent):
     return True
 
 
-class ConfirmActionDialog(QDialog):
+class _GlassPrismDialog(QDialog):
+    """玻璃质感圆角弹窗基类：无系统硬边标题栏，带柔和阴影与可拖拽顶栏。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._drag_origin = None
+        self.setObjectName('confirm-dialog')
+        self.setWindowFlags(
+            Qt.WindowType.Dialog
+            | Qt.WindowType.FramelessWindowHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setModal(True)
+
+    def _init_glass_shell(
+        self,
+        title: str,
+        *,
+        margins: tuple[int, int, int, int] = (18, 14, 18, 14),
+        spacing: int = 10,
+    ) -> QVBoxLayout:
+        self.setWindowTitle(title)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 14)
+        outer.setSpacing(0)
+
+        shell = QFrame(self)
+        shell.setObjectName('glass-dialog-shell')
+        shadow = QGraphicsDropShadowEffect(shell)
+        shadow.setBlurRadius(26)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(52, 42, 108, 42))
+        shell.setGraphicsEffect(shadow)
+        outer.addWidget(shell)
+
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+
+        titlebar = QFrame(shell)
+        titlebar.setObjectName('glass-dialog-titlebar')
+        titlebar.setFixedHeight(36)
+        tb_layout = QHBoxLayout(titlebar)
+        tb_layout.setContentsMargins(16, 0, 10, 0)
+        tb_layout.setSpacing(8)
+        tb_title = QLabel(title, titlebar)
+        tb_title.setObjectName('glass-dialog-title')
+        tb_layout.addWidget(tb_title, 1)
+        close_btn = QPushButton('×', titlebar)
+        close_btn.setObjectName('glass-dialog-close')
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        close_btn.clicked.connect(self.reject)
+        tb_layout.addWidget(close_btn, 0)
+        shell_layout.addWidget(titlebar)
+        self._glass_titlebar = titlebar
+
+        body = QFrame(shell)
+        body.setStyleSheet('QFrame { background: transparent; border: none; }')
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(*margins)
+        body_layout.setSpacing(spacing)
+        shell_layout.addWidget(body, 1)
+        return body_layout
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            tb = getattr(self, '_glass_titlebar', None)
+            if tb is not None and tb.geometry().contains(
+                tb.parentWidget().mapFrom(self, event.position().toPoint())
+            ):
+                self._drag_origin = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_origin is not None and (event.buttons() & Qt.MouseButton.LeftButton):
+            self.move(event.globalPosition().toPoint() - self._drag_origin)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_origin = None
+        super().mouseReleaseEvent(event)
+
+
+class ConfirmActionDialog(_GlassPrismDialog):
     """危险/确认操作：取消在左、确认在右，默认焦点永远在取消。"""
 
     def __init__(self, title, message, confirm_text=None, parent=None, danger=True,
@@ -66,13 +154,8 @@ class ConfirmActionDialog(QDialog):
         super().__init__(parent)
         self.scope_all = False
         zh = _dialog_is_zh(parent)
-        self.setObjectName('confirm-dialog')
-        self.setWindowTitle(title)
-        self.setModal(True)
-        clamp_dialog_geometry(self, 400, min_width=360, min_height=140)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 14)
-        root.setSpacing(10)
+        clamp_dialog_geometry(self, 424, min_width=384, min_height=188)
+        root = self._init_glass_shell(title, margins=(18, 14, 18, 14), spacing=10)
 
         header_band = QFrame(self)
         header_band.setObjectName('dialog-header')
@@ -347,21 +430,16 @@ class CloseActionDialog(QDialog):
         return bool(self.dont_ask_check.isChecked())
 
 
-class AppNoticeDialog(QDialog):
+class AppNoticeDialog(_GlassPrismDialog):
     """统一成功 / 提示 / 警告弹窗：紧凑对齐，短提示小巧利落、长错误自动滚动。"""
 
     def __init__(self, title, message, kind='info', parent=None, button_text=None):
         super().__init__(parent)
-        self.setObjectName('confirm-dialog')
-        self.setWindowTitle(title)
-        self.setModal(True)
         msg_str = str(message or '').strip()
         is_long = len(msg_str) > 85 or '\n' in msg_str
-        target_w = 420 if is_long else 356
-        clamp_dialog_geometry(self, target_w, min_width=320, min_height=112)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 12)
-        root.setSpacing(10)
+        target_w = 444 if is_long else 380
+        clamp_dialog_geometry(self, target_w, min_width=344, min_height=168)
+        root = self._init_glass_shell(title, margins=(16, 14, 16, 14), spacing=10)
 
         body_row = QHBoxLayout()
         body_row.setContentsMargins(0, 0, 0, 0)
@@ -404,8 +482,8 @@ class AppNoticeDialog(QDialog):
         self.ensurePolished()
         title_h = max(22, title_label.sizeHint().height())
         content_h = max(32, title_h + (4 + text_height if msg_str else 0))
-        natural_h = 26 + content_h + 10 + 36
-        clamp_dialog_geometry(self, target_w, natural_h, min_width=320, min_height=112)
+        natural_h = 88 + content_h + 10 + 38
+        clamp_dialog_geometry(self, target_w, natural_h, min_width=344, min_height=168)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -460,23 +538,18 @@ def show_error(parent, title, message, button_text=None):
     return show_info(parent, title, message, kind='error', button_text=button_text)
 
 
-class UnexpectedErrorDialog(QDialog):
+class UnexpectedErrorDialog(_GlassPrismDialog):
     """全局兜底意外错误弹窗：统一 Prism 风格，展示脱敏摘要与一键打开日志目录。"""
 
     def __init__(self, log_dir='', summary='', parent=None):
         super().__init__(parent)
         self._log_dir = str(log_dir or '').strip()
         self._summary = str(summary or '').strip()
-        self.setObjectName('confirm-dialog')
-        self.setWindowTitle('发生意外错误')
-        self.setModal(True)
 
-        target_w = 460
-        clamp_dialog_geometry(self, target_w, min_width=380, min_height=168)
+        target_w = 484
+        clamp_dialog_geometry(self, target_w, min_width=404, min_height=228)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 14)
-        root.setSpacing(12)
+        root = self._init_glass_shell('发生意外错误', margins=(18, 14, 18, 14), spacing=12)
 
         # 头部：Prism 错误圆标 + 温和标题 + 说明
         header_band = QFrame(self)
@@ -627,20 +700,15 @@ def show_unexpected_error_dialog(parent=None, log_dir='', summary=''):
     return dialog.exec()
 
 
-class NextStepDialog(QDialog):
+class NextStepDialog(_GlassPrismDialog):
     """懒人下一步：单次弹窗提供推荐操作，避免连环确认。"""
 
     def __init__(self, title, message, actions, parent=None, recommended=None):
         super().__init__(parent)
         self._result = None
-        self.setObjectName('confirm-dialog')
-        self.setWindowTitle(title)
-        self.setModal(True)
-        target_w = 400
-        clamp_dialog_geometry(self, target_w, min_width=360, min_height=128)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 14)
-        root.setSpacing(8)
+        target_w = 424
+        clamp_dialog_geometry(self, target_w, min_width=384, min_height=188)
+        root = self._init_glass_shell(title, margins=(18, 14, 18, 14), spacing=8)
 
         header_band = QFrame(self)
         header_band.setObjectName('dialog-header')
@@ -690,8 +758,8 @@ class NextStepDialog(QDialog):
             later.setDefault(True)
             later.setFocus()
         self.ensurePolished()
-        natural_h = 30 + max(24, header_band.sizeHint().height()) + (8 + text_height if message else 0) + 8 + 38
-        clamp_dialog_geometry(self, target_w, natural_h, min_width=360, min_height=128)
+        natural_h = 92 + max(24, header_band.sizeHint().height()) + (8 + text_height if message else 0) + 8 + 38
+        clamp_dialog_geometry(self, target_w, natural_h, min_width=384, min_height=188)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -717,20 +785,15 @@ def offer_next_steps(parent, title, message, actions, recommended=None):
     return dialog.selected_action()
 
 
-class HttpsCertConsentDialog(QDialog):
+class HttpsCertConsentDialog(_GlassPrismDialog):
     """首次启用 HTTPS 抓包或手动安装根证书前的明确授权弹窗。"""
 
     def __init__(self, parent=None, language: str = 'zh', for_listen: bool = True):
         super().__init__(parent)
-        self.setObjectName('confirm-dialog')
         zh = language == 'zh'
         title = '启用 HTTPS 抓包' if zh else 'Enable HTTPS Capture'
-        self.setWindowTitle(title)
-        self.setModal(True)
-        clamp_dialog_geometry(self, max(560, self.sizeHint().width()), min_width=560)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(14)
+        clamp_dialog_geometry(self, max(584, self.sizeHint().width()), min_width=584)
+        root = self._init_glass_shell(title, margins=(22, 18, 22, 18), spacing=14)
 
         header = QHBoxLayout()
         header.setSpacing(12)

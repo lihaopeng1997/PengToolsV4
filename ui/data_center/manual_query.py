@@ -278,16 +278,51 @@ class ManualQueryHost(QObject):
         for state in self._states_by_tab.values():
             self._bind_completion(state.tab, state)
 
+    def _merged_completion_snapshot(self, state: _TabState) -> dict:
+        """Combine tree completion catalog with any scanned panel snapshot so SQL completion works immediately."""
+        snap = self._completion_catalog.snapshot(state.target, state.choice.provider)
+        objects = list(snap.get("objects") or [])
+        seen = {
+            (str(obj.get("owner") or "").upper(), str(obj.get("name") or "").upper()): idx
+            for idx, obj in enumerate(objects)
+            if isinstance(obj, dict) and obj.get("name")
+        }
+        panel_snap = getattr(self.panel, "_snapshot", None)
+        if isinstance(panel_snap, dict):
+            for obj in panel_snap.get("objects") or ():
+                if not isinstance(obj, dict) or not isinstance(obj.get("name"), str) or not obj.get("name"):
+                    continue
+                owner = str(obj.get("owner") or obj.get("schema") or "")
+                key = (owner.upper(), obj["name"].upper())
+                if key in seen:
+                    existing = objects[seen[key]]
+                    if not existing.get("columns") and obj.get("columns"):
+                        objects[seen[key]] = {**existing, "columns": obj["columns"]}
+                    continue
+                seen[key] = len(objects)
+                objects.append({
+                    "name": obj["name"],
+                    "owner": owner,
+                    "kind": obj.get("kind") or obj.get("type") or "table",
+                    "comment": obj.get("comment") or "",
+                    "columns": obj.get("columns") or [],
+                })
+        return {"dialect": state.choice.provider, "objects": objects}
+
     def _bind_completion(self, tab: Any, state: _TabState | None) -> None:
         editor = getattr(tab, "editor", None)
         bind = getattr(editor, "bind_schema", None)
         if callable(bind):
-            bind(self._completion_catalog.snapshot(state.target, state.choice.provider)
+            bind(self._merged_completion_snapshot(state)
                  if state and not getattr(tab, "_history_target_locked", False) else None)
         signal = getattr(editor, "completion_wanted", None)
         if signal is not None and not getattr(editor, "_catalog_prime_hooked", False):
             editor._catalog_prime_hooked = True
             signal.connect(self._prime_completion_catalog)
+        run_sig = getattr(editor, "run_statement_requested", None)
+        if run_sig is not None and not getattr(editor, "_run_stmt_hooked", False):
+            editor._run_stmt_hooked = True
+            run_sig.connect(self.run_current)
 
     def _prime_completion_catalog(self) -> None:
         """Pull the directory once when the editor has no table metadata yet."""
@@ -3328,6 +3363,11 @@ class ManualQueryHost(QObject):
         if selected:
             scan_sql(selected, dialect)
             return selected.strip()
+        active_fn = getattr(editor, "active_statement_text", None)
+        if callable(active_fn):
+            active = str(active_fn() or "").strip()
+            if active:
+                return active
         return statement_at(editor.toPlainText(), cursor_position, dialect)
 
 

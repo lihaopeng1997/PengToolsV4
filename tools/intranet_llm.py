@@ -1364,6 +1364,80 @@ def chat_completions(messages: list[dict], cfg=None, model_config_id: str | None
         return _completion_from_request(cfg, body)
 
 
+def probe_tool_capability(cfg=None, model_config_id: str | None = None) -> dict:
+    """Non-destructively probe whether the configured model gateway accepts OpenAI native tools.
+
+    Never writes to disk or mutates saved configuration; callers decide how to present
+    the recommendation to the user.
+    """
+    started = time.perf_counter()
+    target = _cfg_for_call(cfg, model_config_id)
+    probe = dict(target)
+    probe['enabled'] = True
+    probe['timeout_seconds'] = min(10, int(target.get('timeout_seconds') or 120))
+    provider = provider_for_config(probe)
+    default_model = DEEPSEEK_DEFAULT_MODEL if provider == 'deepseek' else INTRANET_DEFAULT_MODEL
+    model = str(probe.get('model') or '').strip() or default_model
+    body = {
+        'model': model,
+        'messages': [
+            {
+                'role': 'user',
+                'content': 'Please call the ping_check tool with echo="ok".',
+            },
+        ],
+        'tools': [
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'ping_check',
+                    'description': 'Health check tool for verifying native function calling.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'echo': {'type': 'string', 'description': 'Echo token'},
+                        },
+                        'required': [],
+                    },
+                },
+            },
+        ],
+        'temperature': 0.0,
+        'max_tokens': 64,
+        'stream': False,
+    }
+    try:
+        canonical_base_url(probe.get('base_url') or '', provider=provider)
+        data = _request(probe, 'POST', 'chat/completions', body)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        choices = data.get('choices') if isinstance(data, dict) else None
+        message = choices[0].get('message') if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
+        tool_calls = message.get('tool_calls') if isinstance(message, dict) else None
+        triggered = isinstance(tool_calls, list) and len(tool_calls) > 0
+        return {
+            'ok': True,
+            'supported': True,
+            'triggered': triggered,
+            'recommended': 'native_tools',
+            'elapsed_ms': elapsed_ms,
+            'detail': (
+                '网关支持原生工具调用（模型已返回 tool_calls）'
+                if triggered else
+                '网关接受原生 tools 参数（可切换为「原生工具调用」后验证）'
+            ),
+        }
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return {
+            'ok': False,
+            'supported': False,
+            'triggered': False,
+            'recommended': 'unknown',
+            'elapsed_ms': elapsed_ms,
+            'detail': redact_llm_error(str(exc)),
+        }
+
+
 def ping_model(cfg=None, model_config_id: str | None = None) -> dict:
     started = time.perf_counter()
     target = _cfg_for_call(cfg, model_config_id)

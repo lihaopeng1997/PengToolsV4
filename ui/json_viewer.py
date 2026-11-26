@@ -308,10 +308,10 @@ class JsonViewer(QWidget):
         self.tree = QTreeWidget()
         self.tree.setObjectName('json-tree')
         self.tree.setColumnCount(3)
-        self.tree.setAlternatingRowColors(True)
+        self.tree.setAlternatingRowColors(False)
         self.tree.setUniformRowHeights(True)
         # 略减缩进，深层级时给字段名多留字宽；允许横向滚动看全名
-        self.tree.setIndentation(14)
+        self.tree.setIndentation(16)
         self.tree.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -611,7 +611,17 @@ class JsonViewer(QWidget):
         self.tree.setColumnWidth(0, _KEY_COL_MIN)
         header.blockSignals(False)
 
+    _TYPE_COLORS = {
+        'object': '#6C58D9',
+        'array': '#0891B2',
+        'string': '#047857',
+        'number': '#1D4ED8',
+        'boolean': '#B45309',
+        'null': '#94A3B8',
+    }
+
     def _build_item(self, index):
+        from PyQt6.QtGui import QColor, QFont
         node = self._nodes[index]
         value = node.display_value()
         item = QTreeWidgetItem([node.key, node.type_name, _preview(value)])
@@ -620,6 +630,21 @@ class JsonViewer(QWidget):
         item.setToolTip(0, f'{node.key}\n{node.path}')
         item.setToolTip(1, node.type_name)
         item.setToolTip(2, value)
+        type_color = QColor(self._TYPE_COLORS.get(node.type_name, '#615D73'))
+        item.setForeground(0, QColor('#262438'))
+        item.setForeground(1, type_color)
+        if node.type_name in ('object', 'array'):
+            key_font = item.font(0)
+            key_font.setBold(True)
+            item.setFont(0, key_font)
+            item.setForeground(2, QColor('#7C7691'))
+        elif node.type_name == 'null':
+            val_font = item.font(2)
+            val_font.setItalic(True)
+            item.setFont(2, val_font)
+            item.setForeground(2, QColor('#94A3B8'))
+        else:
+            item.setForeground(2, type_color if node.type_name in ('number', 'boolean') else QColor('#334155'))
         if node.children:
             item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
         self._items[index] = item

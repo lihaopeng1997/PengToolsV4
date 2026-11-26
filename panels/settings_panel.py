@@ -45,8 +45,17 @@ class _AiProbeWorker(QThread):
 
     def run(self):
         try:
-            from tools.intranet_llm import list_models
-            self.completed.emit(list_models(self.cfg))
+            from tools.intranet_llm import list_models, probe_tool_capability
+            models = list_models(self.cfg)
+            tool_probe = None
+            try:
+                probe_cfg = dict(self.cfg)
+                if not probe_cfg.get('model') and models:
+                    probe_cfg['model'] = models[0]
+                tool_probe = probe_tool_capability(probe_cfg)
+            except Exception:
+                tool_probe = None
+            self.completed.emit({'models': models, 'tool_probe': tool_probe})
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -743,6 +752,17 @@ class SettingsPanel(QWidget):
         self.ai_status = QLabel()
         self.ai_status.setObjectName('field-hint')
         self.ai_status.setWordWrap(True)
+        self.ai_enable_native_tools_btn = QPushButton('一键启用原生工具并保存')
+        size_compact_button(self.ai_enable_native_tools_btn)
+        self.ai_enable_native_tools_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ai_enable_native_tools_btn.clicked.connect(self._apply_detected_native_tools)
+        self.ai_enable_native_tools_btn.hide()
+        self._ai_status_row = QWidget()
+        status_row_layout = QHBoxLayout(self._ai_status_row)
+        status_row_layout.setContentsMargins(0, 0, 0, 0)
+        status_row_layout.setSpacing(8)
+        status_row_layout.addWidget(self.ai_status, 1)
+        status_row_layout.addWidget(self.ai_enable_native_tools_btn, 0)
         self.ai_note = QLabel()
         self.ai_note.setObjectName('ops-safety-note')
         self.ai_note.setWordWrap(True)
@@ -756,7 +776,7 @@ class SettingsPanel(QWidget):
         ai_form.addRow(self.ai_model_label, self.ai_model)
         ai_form.addRow(self.ai_token_label, self.ai_token_row)
         ai_form.addRow(self.ai_action_row)
-        ai_form.addRow(self.ai_status)
+        ai_form.addRow(self._ai_status_row)
         ai_outer.addLayout(ai_form)
 
         self.ai_advanced_toggle = QPushButton()
@@ -1989,17 +2009,52 @@ class SettingsPanel(QWidget):
         self._ai_probe_worker.finished.connect(lambda: self.ai_probe_btn.setEnabled(True))
         self._ai_probe_worker.start()
 
-    def _on_ai_probe_ok(self, models):
+    def _apply_detected_native_tools(self):
+        idx = self.ai_agent_capability.findData('native_tools')
+        if idx >= 0:
+            self.ai_agent_capability.setCurrentIndex(idx)
+        self.ai_enable_native_tools_btn.hide()
+        self._save_intranet_model()
+
+    def _on_ai_probe_ok(self, payload):
         zh = self.language == 'zh'
-        names = [str(item) for item in (models or []) if str(item).strip()]
+        if isinstance(payload, dict):
+            models = payload.get('models') or []
+            tool_probe = payload.get('tool_probe')
+        else:
+            models = payload or []
+            tool_probe = None
+        names = [str(item) for item in models if str(item).strip()]
         self._save_loading.finish('模型连通正常' if zh else 'Model reachable')
         current = self.ai_model.text().strip()
         self._ai_available_models = names
         if not current and names:
             self.ai_model.setText(names[0])
         self._schedule_ai_provider_control_fit()
+        current_cap = str(self.ai_agent_capability.currentData() or 'unknown')
+        tool_hint = ''
+        show_enable_btn = False
+        if isinstance(tool_probe, dict):
+            if tool_probe.get('supported'):
+                if current_cap == 'unknown':
+                    tool_hint = (
+                        '；检测到支持原生工具调用（当前为未声明，可点击右侧按钮启用）'
+                        if zh else
+                        '; native tools supported (currently undeclared — click button to enable)'
+                    )
+                    show_enable_btn = True
+                elif current_cap == 'native_tools':
+                    tool_hint = '；原生工具调用校验通过' if zh else '; native tools verified'
+            else:
+                if current_cap == 'native_tools':
+                    tool_hint = (
+                        '；原生工具探测未通过，运行时将自动回退文本协议'
+                        if zh else
+                        '; native tools probe failed; runtime will fall back to text protocol'
+                    )
+        self.ai_enable_native_tools_btn.setVisible(show_enable_btn)
         if names:
-            probe_msg = f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)'
+            probe_msg = (f'可用，共 {len(names)} 个模型' if zh else f'Ready, {len(names)} model(s)') + tool_hint
             self.ai_status.setText(probe_msg)
             try:
                 from tools.intranet_llm import upsert_model_item
@@ -2021,12 +2076,13 @@ class SettingsPanel(QWidget):
                 self._refresh_ai_list()
                 # BUG-023: _refresh_ai_list 会重填表单并把状态改回「已保存」，需恢复本次探测成功结果
                 self.ai_status.setText(probe_msg)
+                self.ai_enable_native_tools_btn.setVisible(show_enable_btn)
             except Exception as exc:
                 self.ai_status.setText(str(exc))
         else:
             self.ai_status.setText(
-                '已连通，但 /v1/models 列表为空，请手填模型名' if zh else
-                'Reachable, but /v1/models is empty. Type the model name.'
+                ('已连通，但 /v1/models 列表为空，请手填模型名' if zh else
+                 'Reachable, but /v1/models is empty. Type the model name.') + tool_hint
             )
 
     def _on_ai_probe_fail(self, message):
@@ -2510,6 +2566,7 @@ class SettingsPanel(QWidget):
         self.ai_supports_vision.setText('支持图片输入（多模态）' if zh else 'Supports image input (multimodal)')
         self.ai_supports_vision.setToolTip('勾选后允许在模型对话中添加图片附件' if zh else 'Allow image attachments in Model Chat')
         self.ai_probe_btn.setText('探测' if zh else 'Probe')
+        self.ai_enable_native_tools_btn.setText('一键启用原生工具并保存' if zh else 'Enable native tools & save')
         self.ai_save_btn.setText('保存模型与响应设置' if zh else 'Save model and response')
         self.ai_save_btn.setToolTip(
             '只保存当前选中的模型服务商及响应设置，不应用一般偏好。'

@@ -529,20 +529,25 @@ class _SshTerminalView(QAbstractScrollArea):
         self.viewport().update()
 
     def clear_and_ready(self) -> None:
-        """清屏：
-        - 已连接时向远端 PTY 发送 Ctrl+L (\x0c)，由远端 PTY 回显自然重绘/清屏，不本地篡改 screen authority。
-        - 未连接时清理本地残余展示。
-        """
+        """清空终端显示：同时清理本地滚动回溯与屏幕缓冲，已连接时再发 Ctrl+L 重绘提示符。"""
         self._system_status = ''
+        self._find_matches = []
+        self._find_index = -1
+        self._sel_start = None
+        self._sel_end = None
+        try:
+            self._emulator.scrollback.clear()
+        except Exception:
+            pass
+        self._emulator.clear_screen()
+        self._update_scroll_bar()
+        self.verticalScrollBar().setValue(0)
+        self.viewport().update()
         if self.shell_alive and self._shell is not None:
             try:
                 self._shell.send(b'\x0c')
             except Exception as exc:
                 self.append_system(f'[发送失败] {exc}')
-        else:
-            self._emulator.clear_screen()
-            self._update_scroll_bar()
-            self.viewport().update()
 
     def send_command_line(self, text: str) -> None:
         if not self.shell_alive:
@@ -606,8 +611,26 @@ class _SshTerminalView(QAbstractScrollArea):
         sb.setPageStep(self._emulator.rows)
 
     def _cell_dimensions(self) -> Tuple[int, int]:
+        cached = getattr(self, '_cached_cell_dims', None)
+        font_key = (self._terminal_font.family(), self._terminal_font.pointSizeF())
+        if cached is not None and getattr(self, '_cached_font_key', None) == font_key:
+            return cached
         self._metrics = terminal_cell_metrics(self._terminal_font)
-        return int(self._metrics['cell_width']), int(self._metrics['cell_height'])
+        dims = (int(self._metrics['cell_width']), int(self._metrics['cell_height']))
+        self._cached_cell_dims = dims
+        self._cached_font_key = font_key
+        return dims
+
+    def _qcolor(self, value: str) -> QColor:
+        cache = getattr(self, '_color_cache', None)
+        if cache is None:
+            cache = {}
+            self._color_cache = cache
+        color = cache.get(value)
+        if color is None:
+            color = QColor(value)
+            cache[value] = color
+        return color
 
     def _viewport_grid(self) -> tuple[int, int]:
         cw, lh = self._cell_dimensions()
@@ -688,6 +711,12 @@ class _SshTerminalView(QAbstractScrollArea):
 
         # Draw cells
         sel_range = self._get_normalized_selection()
+        has_sel = sel_range is not None
+        has_find = bool(self._find_matches)
+        sel_color = self._qcolor(c['sel'])
+        find_color = self._qcolor(c['find'])
+        find_cur_color = self._qcolor(c['find_cur'])
+        default_fg_color = self._qcolor(c['fg'])
         for r, row in enumerate(visible_rows):
             if scroll_offset == 0 and (r < shift or r >= shift + view_rows):
                 continue
@@ -698,22 +727,22 @@ class _SshTerminalView(QAbstractScrollArea):
             for col_idx, cell in enumerate(row):
                 if cell.width == 0:
                     continue  # Trailing cell of wide char
+                has_bg = bool(cell.style.reverse or cell.style.bg)
+                if not has_find and not has_sel and not has_bg:
+                    continue
                 cell_w = cw * max(1, cell.width)
                 cell_rect = QRect(pad_x + col_idx * cw, y, cell_w, lh)
 
-                is_selected = self._is_cell_selected(abs_row, col_idx, sel_range)
-                is_find = self._is_cell_find_highlight(abs_row, col_idx)
-
+                is_find = self._is_cell_find_highlight(abs_row, col_idx) if has_find else 0
                 if is_find:
-                    painter.fillRect(cell_rect, QColor(c['find_cur'] if is_find == 2 else c['find']))
-                elif is_selected:
-                    painter.fillRect(cell_rect, QColor(c['sel']))
-                else:
+                    painter.fillRect(cell_rect, find_cur_color if is_find == 2 else find_color)
+                elif has_sel and self._is_cell_selected(abs_row, col_idx, sel_range):
+                    painter.fillRect(cell_rect, sel_color)
+                elif has_bg:
                     eff_style = resolve_terminal_cell_style(cell.style, default_fg=c['fg'], default_bg=c['bg'])
-                    if cell.style.reverse or cell.style.bg:
-                        bg_color = QColor(eff_style['background'])
-                        if bg_color.isValid():
-                            painter.fillRect(cell_rect, bg_color)
+                    bg_color = self._qcolor(eff_style['background'])
+                    if bg_color.isValid():
+                        painter.fillRect(cell_rect, bg_color)
 
             # Pass 2: Foreground text runs (ASCII 连续文本合并渲染，Wide/特殊字符保持独立)
             runs = build_row_foreground_runs(row, default_fg=c['fg'])
@@ -730,7 +759,10 @@ class _SshTerminalView(QAbstractScrollArea):
                     continue
 
                 run_x = pad_x + item['col'] * cw
-                fg_color = QColor(eff['foreground']) if (eff['foreground'] and QColor(eff['foreground']).isValid()) else QColor(c['fg'])
+                fg_hex = eff['foreground']
+                fg_color = self._qcolor(fg_hex) if fg_hex else default_fg_color
+                if not fg_color.isValid():
+                    fg_color = default_fg_color
                 # SGR 2 dim: 降低前景色强度
                 if eff['dim']:
                     fg_color = QColor(fg_color)
@@ -856,6 +888,46 @@ class _SshTerminalView(QAbstractScrollArea):
                 self._sel_end = None
             self.viewport().update()
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """双击仅选中光标所在词块，不触发容器重排或格式错乱。"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            abs_row, col = self._pos_to_abs_cell(event.pos())
+            total_sb = len(self._emulator.scrollback)
+            row = None
+            if 0 <= abs_row < total_sb:
+                row = self._emulator.scrollback[abs_row]
+            else:
+                scr_r = abs_row - total_sb
+                if 0 <= scr_r < len(self._emulator.screen.grid):
+                    row = self._emulator.screen.grid[scr_r]
+            if row and 0 <= col < len(row):
+                def _is_word(ch: str) -> bool:
+                    return bool(ch) and (ch.isalnum() or ch in '_-./:~@')
+                if _is_word(row[col].char):
+                    left = col
+                    right = col
+                    while left > 0 and _is_word(row[left - 1].char):
+                        left -= 1
+                    while right + 1 < len(row) and _is_word(row[right + 1].char):
+                        right += 1
+                    self._sel_start = (abs_row, left)
+                    self._sel_end = (abs_row, right)
+                    self._is_mouse_selecting = False
+                    self.viewport().update()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            sb = self.verticalScrollBar()
+            steps = max(1, abs(delta) // 40)
+            sb.setValue(sb.value() - (steps if delta > 0 else -steps))
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def _get_normalized_selection(self) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
         if not self._sel_start or not self._sel_end or self._sel_start == self._sel_end:

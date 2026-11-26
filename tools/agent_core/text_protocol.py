@@ -15,18 +15,24 @@ import re
 from typing import Any, Collection
 
 
-_TOOL_CALL_BLOCK = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.I | re.S)
+_TOOL_CALL_BLOCK = re.compile(r"<(?:tool_call|function_call)>\s*(.*?)\s*</(?:tool_call|function_call)>", re.I | re.S)
 _FUNCTION_BLOCK = re.compile(
-    r"<function=([A-Za-z_][A-Za-z0-9_]*)>\s*(.*?)\s*</function>",
+    r"<(?:function|invoke)(?:=|\s+name=)\s*[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?\s*>\s*(.*?)\s*</(?:function|invoke)>",
     re.I | re.S,
 )
 _PARAM_BLOCK = re.compile(
-    r"<parameter=([A-Za-z_][A-Za-z0-9_]*)>\s*(.*?)\s*</parameter>",
+    r"<parameter(?:=|\s+name=)\s*[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?\s*>\s*(.*?)\s*</parameter>",
     re.I | re.S,
 )
-_FUNCTION_OPEN = re.compile(r"<function=([A-Za-z_][A-Za-z0-9_]*)>", re.I)
-_PARAM_OPEN = re.compile(r"<parameter=([A-Za-z_][A-Za-z0-9_]*)>", re.I)
-_TRAILING_CLOSE = re.compile(r"\s*</(?:parameter|function|tool_call)>\s*$", re.I)
+_FUNCTION_OPEN = re.compile(
+    r"<(?:function|invoke)(?:=|\s+name=)\s*[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?\s*>",
+    re.I,
+)
+_PARAM_OPEN = re.compile(
+    r"<parameter(?:=|\s+name=)\s*[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?\s*>",
+    re.I,
+)
+_TRAILING_CLOSE = re.compile(r"\s*</(?:parameter|function|invoke|tool_call|function_call)>\s*$", re.I)
 
 TEXT_PROTOCOL_INSTRUCTION = (
     "需要查数据或调用工具时，输出完整标记，应用会执行并把结果发回。"
@@ -43,10 +49,45 @@ EVIDENCE_CONTINUATION_INSTRUCTION = (
 TOOL_NAME_ALIASES = {
     "describe_table": "describe_object",
     "get_columns": "describe_object",
+    "list_columns": "describe_object",
     "get_table_schema": "describe_object",
+    "get_table_info": "describe_object",
     "search_tables": "search_objects",
     "list_tables": "search_objects",
+    "find_tables": "search_objects",
+    "execute_sql": "query_readonly",
+    "run_sql": "query_readonly",
+    "query_sql": "query_readonly",
+    "select_query": "query_readonly",
+    "execute_query": "query_readonly",
+    "sql_query": "query_readonly",
+    "find_file": "find_files",
+    "glob": "find_files",
+    "glob_files": "find_files",
+    "locate_files": "find_files",
 }
+
+
+def build_text_tool_instruction(tools: Any) -> str:
+    """Build a compact text-protocol tool declaration when native `tools` is rejected at runtime."""
+    items: list[str] = []
+    if isinstance(tools, (list, tuple)):
+        for entry in tools:
+            if not isinstance(entry, dict):
+                continue
+            fn = entry.get("function") if isinstance(entry.get("function"), dict) else entry
+            name = str(fn.get("name") or "").strip()
+            if not name:
+                continue
+            desc = str(fn.get("description") or "").strip()
+            params = fn.get("parameters") if isinstance(fn.get("parameters"), dict) else {}
+            props = params.get("properties") if isinstance(params.get("properties"), dict) else {}
+            req = set(params.get("required") or ())
+            sig = ", ".join(f"{k}{'*' if k in req else ''}" for k in props)
+            items.append(f"- {name}({sig}): {desc[:120]}")
+    if not items:
+        return TEXT_PROTOCOL_INSTRUCTION
+    return TEXT_PROTOCOL_INSTRUCTION + "\n可用工具：\n" + "\n".join(items)
 
 _INVALID = object()
 
@@ -124,7 +165,7 @@ def _coerce_arguments(raw: Any) -> Any:
         if text[:1] not in "{[":
             return _INVALID
         try:
-            value = json.loads(text)
+            value = json.loads(text, strict=False)
         except json.JSONDecodeError:
             return _INVALID
         if isinstance(value, dict):
@@ -184,12 +225,12 @@ def _calls_from_json_payload(body: str) -> Any:
         if trailing and trailing != "```":
             return _INVALID
         try:
-            value = json.loads(blob)
+            value = json.loads(blob, strict=False)
         except json.JSONDecodeError:
             return _INVALID
     else:
         try:
-            value = json.loads(candidate)
+            value = json.loads(candidate, strict=False)
         except json.JSONDecodeError:
             return _INVALID
     if isinstance(value, dict) and isinstance(value.get("tool_calls"), list) and "name" not in value and "tool" not in value:
@@ -214,7 +255,7 @@ def _calls_from_json_payload(body: str) -> Any:
 def _arguments_from_function_body(body: str) -> dict[str, Any] | None:
     """Parameter tags, a JSON object, or None when a JSON body is unusable."""
 
-    if "<parameter=" in str(body or "").lower():
+    if "<parameter=" in str(body or "").lower() or "<parameter " in str(body or "").lower():
         return _arguments_from_body(body)
     stripped = _strip_embedded_fence(body)
     if not stripped:
@@ -230,7 +271,8 @@ def _arguments_from_function_body(body: str) -> dict[str, Any] | None:
 def _calls_from_fragment(fragment: str) -> list[dict[str, Any]] | None:
     """Parse function tags. None means this fragment has no usable function tag."""
 
-    if "<function=" not in fragment.lower():
+    lowered = fragment.lower()
+    if "<function=" not in lowered and "<function " not in lowered and "<invoke " not in lowered:
         return None
     calls: list[dict[str, Any]] = []
     closed = list(_FUNCTION_BLOCK.finditer(fragment))
@@ -265,7 +307,8 @@ def _calls_from_fragment(fragment: str) -> list[dict[str, Any]] | None:
 def _calls_from_tool_block(body: str) -> list[dict[str, Any]] | None:
     """Calls inside one ``<tool_call>`` body. None means the body is unusable."""
 
-    if "<function=" in str(body or "").lower():
+    lowered_body = str(body or "").lower()
+    if "<function=" in lowered_body or "<function " in lowered_body or "<invoke " in lowered_body:
         return _calls_from_fragment(body)
     payload = _calls_from_json_payload(body)
     if payload is None or payload is _INVALID or not payload:
@@ -283,7 +326,13 @@ def parse_qwen_tool_calls(text: str) -> list[dict[str, Any]] | None:
 
     raw = str(text or "")
     lowered = raw.lower()
-    if "<tool_call" not in lowered and "<function=" not in lowered:
+    if (
+        "<tool_call" not in lowered
+        and "<function_call" not in lowered
+        and "<function=" not in lowered
+        and "<function " not in lowered
+        and "<invoke " not in lowered
+    ):
         return None
     calls: list[dict[str, Any]] = []
     blocks = list(_TOOL_CALL_BLOCK.finditer(raw))

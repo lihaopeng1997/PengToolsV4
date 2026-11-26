@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from ui.chat_kit.bubble import MessageBubble
@@ -24,8 +24,12 @@ def format_chat_clock(value) -> str:
 class ChatView(QScrollArea):
     """Message list. Horizontal scrolling stays off; code blocks scroll themselves."""
 
-    def __init__(self, parent=None):
+    apply_sql_requested = pyqtSignal(str)
+    run_sql_requested = pyqtSignal(str)
+
+    def __init__(self, parent=None, *, sql_actions: bool = False):
         super().__init__(parent)
+        self._sql_actions = bool(sql_actions)
         self.setObjectName('chat-view')
         self.setWidgetResizable(True)
         self.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -60,15 +64,34 @@ class ChatView(QScrollArea):
         bar.rangeChanged.connect(self._on_range)
         self.viewport().installEventFilter(self)
 
+    def _effective_viewport_width(self) -> int:
+        vp_w = self.viewport().width()
+        if vp_w >= 220:
+            return vp_w
+        own_w = self.width()
+        if own_w >= 220:
+            return own_w - 16
+        parent = self.parentWidget()
+        if parent is not None and parent.width() >= 240:
+            return parent.width() - 24
+        return 620
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        QTimer.singleShot(0, self._sync_all_bubble_widths)
+
+    def _sync_all_bubble_widths(self) -> None:
+        width = self._effective_viewport_width()
+        self._host.setMaximumWidth(max(1, width))
+        for bubble in list(self._bubbles.values()):
+            bubble.set_viewport_width(width)
+
     def eventFilter(self, watched, event):  # noqa: N802
         if watched is self.viewport() and event.type() == QEvent.Type.Resize and not self._fitting:
             self._fitting = True
             try:
                 self._place_jump()
-                width = self.viewport().width()
-                self._host.setMaximumWidth(max(1, width))
-                for bubble in list(self._bubbles.values()):
-                    bubble.set_viewport_width(width)
+                self._sync_all_bubble_widths()
             finally:
                 self._fitting = False
         return super().eventFilter(watched, event)
@@ -80,16 +103,22 @@ class ChatView(QScrollArea):
         self._stick = True
         QTimer.singleShot(0, self.scroll_to_bottom)
 
+    def set_sql_actions_enabled(self, enabled: bool) -> None:
+        self._sql_actions = bool(enabled)
+
     def append_message(self, message, follow=True) -> MessageBubble:
         if not message.get('id'):
             message = dict(message, id=uuid4().hex)
-        bubble = MessageBubble(message)
+        bubble = MessageBubble(message, sql_actions=self._sql_actions)
+        if self._sql_actions:
+            bubble.apply_sql_requested.connect(self.apply_sql_requested.emit)
+            bubble.run_sql_requested.connect(self.run_sql_requested.emit)
         self.append_widget(bubble, follow=follow)
         return bubble
 
     def append_widget(self, widget: QWidget, *, follow=True) -> None:
         if isinstance(widget, MessageBubble):
-            widget.set_viewport_width(self.viewport().width() or self.width())
+            widget.set_viewport_width(self._effective_viewport_width())
             self._bubbles[widget.message_id] = widget
         index = max(0, self._layout.count() - 1)
         self._layout.insertWidget(index, widget)

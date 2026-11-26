@@ -235,10 +235,13 @@ class CompactStepper(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        step_h = max(32, FIELD_H + 4)
+        self.setFixedHeight(step_h)
+
         self.minus_btn = QPushButton('−')
         self.minus_btn.setObjectName('compact-step-minus')
         self.minus_btn.setAccessibleName('减少')
-        self.minus_btn.setFixedSize(28, FIELD_H)
+        self.minus_btn.setFixedSize(28, step_h - 2)
         self.minus_btn.setFlat(True)
         self.minus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -247,20 +250,21 @@ class CompactStepper(QWidget):
         self.edit.setAccessibleName('数值')
         self.edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         value_w = int(edit_width or LINE_NUM_W)
-        self.edit.setFixedSize(max(36, min(56, value_w) if edit_width is None else value_w), FIELD_H)
+        self.edit.setFixedSize(max(40, min(58, value_w) if edit_width is None else value_w), step_h - 2)
         self.edit.setFrame(False)
 
         self.plus_btn = QPushButton('+')
         self.plus_btn.setObjectName('compact-step-plus')
         self.plus_btn.setAccessibleName('增加')
-        self.plus_btn.setFixedSize(28, FIELD_H)
+        self.plus_btn.setFixedSize(28, step_h - 2)
         self.plus_btn.setFlat(True)
         self.plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.suffix_label = QLabel(suffix or '', self)  # 先挂父对象，避免 setVisible 弹出独立小窗
+        clean_suffix = str(suffix or '').strip()
+        self.suffix_label = QLabel(clean_suffix, self)  # 先挂父对象，避免 setVisible 弹出独立小窗
         self.suffix_label.setObjectName('field-hint')
-        self.suffix_label.setContentsMargins(6, 0, 0, 0)
-        self.suffix_label.setVisible(bool(suffix))
+        self.suffix_label.setContentsMargins(4, 0, 10, 0)
+        self.suffix_label.setVisible(bool(clean_suffix))
 
         layout.addWidget(self.minus_btn)
         layout.addWidget(self.edit)

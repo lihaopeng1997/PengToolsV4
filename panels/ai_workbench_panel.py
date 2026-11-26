@@ -300,6 +300,7 @@ class AiWorkbenchPanel(QWidget):
         self.data_center_agent = DataCenterWorkbenchAgent(
             selection_provider=self._data_center_agent_selection,
             put_sql=self._put_data_center_agent_sql,
+            run_sql=self._run_data_center_agent_sql,
             language=language,
             **dict(data_center_agent_options or {}),
             parent=self,
@@ -1056,15 +1057,43 @@ class AiWorkbenchPanel(QWidget):
             owner = str(entry.get('owner') or '').strip()
             if owner and owner.casefold() not in {value.casefold() for value in owners}:
                 owners.append(owner)
-        return {'profile': item, 'schema_allowlist': tuple(owners)}
+        return {
+            'profile': item,
+            'schema_allowlist': tuple(owners),
+            'schema_snapshot': self._snapshot,
+        }
 
     def _put_data_center_agent_sql(self, sql: str):
         editor = self._current_editor()
         text = str(sql or '').strip()
         if editor is None or not text:
             return
-        editor.insertPlainText(text)
+        existing = editor.toPlainText()
+        if existing.strip():
+            cur = editor.textCursor()
+            cur.movePosition(cur.MoveOperation.End)
+            sep = '\n\n' if not existing.endswith('\n\n') else ''
+            if existing.endswith('\n') and not existing.endswith('\n\n'):
+                sep = '\n'
+            cur.insertText(sep + text)
+            editor.setTextCursor(cur)
+        else:
+            editor.setPlainText(text)
+            cur = editor.textCursor()
+            cur.movePosition(cur.MoveOperation.End)
+            editor.setTextCursor(cur)
         editor.setFocus()
+
+    def _run_data_center_agent_sql(self, sql: str):
+        text = str(sql or '').strip()
+        if not text:
+            return
+        self._put_data_center_agent_sql(text)
+        host = getattr(self, 'manual_query_host', None)
+        if host is not None and callable(getattr(host, 'run_current', None)):
+            host.run_current()
+        elif callable(getattr(self, '_run_sql', None)):
+            self._run_sql()
 
     def agent_shutdown_cleanup(self) -> bool:
         host = getattr(self, 'data_center_agent', None)
@@ -2277,6 +2306,10 @@ class AiWorkbenchPanel(QWidget):
             )
         tab.editor.bind_schema(None if history_record is not None or getattr(self, 'manual_query_host', None) is not None else self._snapshot)
         tab.editor.textChanged.connect(self._refresh_risk_chip)
+        tab.editor.inspect_table_requested.connect(self._inspect_table_from_editor)
+        tab.editor.view_ddl_requested.connect(self._view_ddl_from_editor)
+        tab.editor.preview_data_requested.connect(self._preview_table_from_editor)
+        tab.editor.send_to_ai_requested.connect(self._send_sql_to_ai_from_editor)
         if text:
             tab.editor.setPlainText(text)
             tab.dirty = False
@@ -2291,6 +2324,100 @@ class AiWorkbenchPanel(QWidget):
             else:
                 manual_host.history_draft_changed(tab)
         return tab
+
+    def _inspect_table_from_editor(self, table_ref: str):
+        """从 SQL 编辑器右键查看表结构：优先定位对象详情，无快照时通过查询展示列信息。"""
+        ref = str(table_ref or '').strip('"` ')
+        if not ref:
+            return
+        short = ref.rsplit('.', 1)[-1].upper()
+        owner = ref.rsplit('.', 1)[0].upper() if '.' in ref else ''
+        objs = (self._snapshot or {}).get('objects') or ()
+        matched = None
+        for obj in objs:
+            if not isinstance(obj, dict):
+                continue
+            name = str(obj.get('name') or '').strip().upper()
+            obj_owner = str(obj.get('owner') or '').strip().upper()
+            if name == short and (not owner or obj_owner == owner):
+                matched = obj
+                break
+        if matched is not None and hasattr(self, '_show_detail'):
+            if hasattr(self, 'side_tabs'):
+                self.side_tabs.setVisible(True)
+                self.side_tabs.setCurrentIndex(1)
+            try:
+                self._show_detail(matched)
+                return
+            except Exception:
+                pass
+        dialect = str((self._current_conn() or {}).get('dialect') or self._dialect or 'oracle').lower()
+        if dialect.endswith('mysql'):
+            sql = (
+                f"SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_COMMENT\n"
+                f"FROM INFORMATION_SCHEMA.COLUMNS\n"
+                f"WHERE TABLE_NAME = '{short}'"
+                + (f" AND TABLE_SCHEMA = '{owner}'" if owner else '')
+                + "\nORDER BY ORDINAL_POSITION"
+            )
+        else:
+            sql = (
+                f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, NULLABLE\n"
+                f"FROM ALL_TAB_COLUMNS\n"
+                f"WHERE TABLE_NAME = '{short}'"
+                + (f" AND OWNER = '{owner}'" if owner else '')
+                + "\nORDER BY COLUMN_ID"
+            )
+        self._new_sql_tab(sql, title=f'结构 · {short}')
+        host = getattr(self, 'manual_query_host', None)
+        if host is not None:
+            host.run_current()
+
+    def _view_ddl_from_editor(self, table_ref: str):
+        """从 SQL 编辑器右键查看 DDL。"""
+        ref = str(table_ref or '').strip('"` ')
+        if not ref:
+            return
+        short = ref.rsplit('.', 1)[-1].upper()
+        owner = ref.rsplit('.', 1)[0].upper() if '.' in ref else ''
+        dialect = str((self._current_conn() or {}).get('dialect') or self._dialect or 'oracle').lower()
+        if dialect.endswith('mysql'):
+            sql = f'SHOW CREATE TABLE {ref}'
+        else:
+            owner_arg = f", '{owner}'" if owner else ''
+            sql = f"SELECT DBMS_METADATA.GET_DDL('TABLE', '{short}'{owner_arg}) AS DDL FROM DUAL"
+        self._new_sql_tab(sql, title=f'DDL · {short}')
+        host = getattr(self, 'manual_query_host', None)
+        if host is not None:
+            host.run_current()
+
+    def _preview_table_from_editor(self, table_ref: str):
+        """从 SQL 编辑器右键预览前 100 行数据。"""
+        ref = str(table_ref or '').strip('"` ')
+        if not ref:
+            return
+        short = ref.rsplit('.', 1)[-1]
+        dialect = str((self._current_conn() or {}).get('dialect') or self._dialect or 'oracle').lower()
+        if dialect.endswith('mysql'):
+            sql = f'SELECT *\nFROM {ref}\nLIMIT 100'
+        else:
+            sql = f'SELECT *\nFROM {ref}\nWHERE ROWNUM <= 100'
+        self._new_sql_tab(sql, title=f'数据 · {short}')
+        host = getattr(self, 'manual_query_host', None)
+        if host is not None:
+            host.run_current()
+
+    def _send_sql_to_ai_from_editor(self, sql_text: str):
+        """将当前 SQL 发送到右侧 AI 助手输入框。"""
+        snippet = str(sql_text or '').strip()
+        if not snippet:
+            return
+        if hasattr(self, 'side_tabs'):
+            self.side_tabs.setVisible(True)
+            self.side_tabs.setCurrentIndex(0)
+        if hasattr(self, 'nl_input'):
+            self.nl_input.setPlainText(f'请帮我分析或优化这条 SQL：\n{snippet}')
+            self.nl_input.setFocus()
 
     def _close_sql_tab(self, index: int):
         manual_host = getattr(self, 'manual_query_host', None)
