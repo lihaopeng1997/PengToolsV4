@@ -513,6 +513,7 @@ class ServerEditorDialog(QDialog):
         path, _filter = QFileDialog.getOpenFileName(
             self, '选择私钥文件' if self.language == 'zh' else 'Choose private key',
             start if os.path.isdir(start) else os.path.expanduser('~'), 'All files (*)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if path:
             self.key_path_edit.setText(path)
@@ -4273,6 +4274,7 @@ class OpsLogPanel(QWidget):
             self,
             '下载到本机' if zh else 'Download to',
             start,
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not local:
             return
@@ -4748,6 +4750,7 @@ class OpsLogPanel(QWidget):
             self,
             '选择导出目录' if self.language == 'zh' else 'Export folder',
             start,
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if path:
             remember_dialog_path('ops_log_export_dir', path, is_directory=True)
@@ -4816,6 +4819,7 @@ class OpsLogPanel(QWidget):
             self,
             '选择导出文件夹' if zh else 'Choose export folder',
             start_dir,
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not path_pick:
             return

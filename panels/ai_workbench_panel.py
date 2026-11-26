@@ -1057,10 +1057,26 @@ class AiWorkbenchPanel(QWidget):
             owner = str(entry.get('owner') or '').strip()
             if owner and owner.casefold() not in {value.casefold() for value in owners}:
                 owners.append(owner)
+        recent_parts = []
+        editor = self._current_editor()
+        if editor is not None:
+            active_sql = (
+                editor.active_statement_text()
+                if hasattr(editor, 'active_statement_text') else editor.toPlainText().strip()
+            )
+            if active_sql:
+                recent_parts.append(f'当前编辑器 SQL：\n{active_sql[:400]}')
+        msg_view = getattr(self, 'msg_view', None)
+        if msg_view is not None:
+            msg_text = str(msg_view.toPlainText() or '').strip()
+            if msg_text:
+                lines = [ln for ln in msg_text.splitlines() if ln.strip()][-6:]
+                recent_parts.append('最近执行消息/报错：\n' + '\n'.join(lines)[:400])
         return {
             'profile': item,
             'schema_allowlist': tuple(owners),
             'schema_snapshot': self._snapshot,
+            'recent_error_context': '\n\n'.join(recent_parts),
         }
 
     def _put_data_center_agent_sql(self, sql: str):
@@ -2480,7 +2496,8 @@ class AiWorkbenchPanel(QWidget):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         start = get_dialog_start_dir('sql_draft', SQL_DRAFTS_DIR)
         path, _filter = QFileDialog.getSaveFileName(
-            self, '保存 SQL 草稿' if zh else 'Save SQL draft', start, 'SQL (*.sql)'
+            self, '保存 SQL 草稿' if zh else 'Save SQL draft', start, 'SQL (*.sql)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not path:
             return

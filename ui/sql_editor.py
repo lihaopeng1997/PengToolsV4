@@ -23,12 +23,14 @@ SQL_KEYWORDS = (
     'SELECT', 'SELECT * FROM', 'SELECT COUNT(*) FROM', 'FROM', 'WHERE',
     'AND', 'OR', 'NOT', 'IN', 'NOT IN', 'BETWEEN', 'LIKE', 'IS NULL', 'IS NOT NULL',
     'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'ON', 'AS', 'DISTINCT',
-    'GROUP BY', 'ORDER BY', 'HAVING', 'DESC', 'ASC',
-    'FETCH FIRST 200 ROWS ONLY', 'ROWNUM <= 200', 'LIMIT 200', 'OFFSET',
+    'GROUP BY', 'ORDER BY', 'HAVING', 'DESC', 'ASC', 'EXPLAIN',
+    'ROWNUM <= 100', 'ROWNUM <= 200', 'FETCH FIRST 100 ROWS ONLY', 'FETCH FIRST 200 ROWS ONLY',
+    'LIMIT 100', 'LIMIT 200', 'OFFSET',
     'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'MERGE INTO',
     'WITH', 'UNION', 'UNION ALL', 'CASE WHEN', 'THEN', 'ELSE', 'END', 'EXISTS',
     'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'DUAL',
-    'COUNT(*)', 'SUM()', 'AVG()', 'MAX()', 'MIN()',
+    'ALL_TABLES', 'ALL_TAB_COLUMNS', 'ALL_OBJECTS', 'DBMS_METADATA.GET_DDL',
+    'COUNT(*)', 'SUM()', 'AVG()', 'MAX()', 'MIN()', 'LISTAGG()', 'REGEXP_LIKE()',
     'TRUNC(SYSDATE)', 'SYSDATE', 'TO_CHAR()', 'TO_DATE()', 'NVL()', 'COALESCE()',
     'NOW()', 'DATE_FORMAT()', 'SUBSTR()', 'TRIM()', 'ROUND()',
 )
@@ -132,7 +134,9 @@ class _SqlCompletionDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = QRectF(option.rect).adjusted(4, 1, -4, -1)
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        view = option.widget
+        is_current = bool(view is not None and hasattr(view, 'currentIndex') and view.currentIndex() == index)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected) or is_current
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         if selected:
             painter.setPen(QPen(QColor('#C5B7F5'), 1.0))
@@ -637,11 +641,44 @@ class SqlEditor(QPlainTextEdit):
     def keyPressEvent(self, event: QKeyEvent):
         popup = self._completer.popup()
         if popup is not None and popup.isVisible():
-            if event.key() in (
-                Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Escape,
-                Qt.Key.Key_Tab, Qt.Key.Key_Backtab,
-            ):
-                event.ignore()
+            key = event.key()
+            pmodel = popup.model()
+            row_total = pmodel.rowCount() if pmodel is not None else 0
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown) and row_total > 0:
+                cur_row = popup.currentIndex().row()
+                if cur_row < 0:
+                    cur_row = 0
+                if key == Qt.Key.Key_Up:
+                    next_row = (cur_row - 1) % row_total
+                elif key == Qt.Key.Key_Down:
+                    next_row = (cur_row + 1) % row_total
+                elif key == Qt.Key.Key_PageUp:
+                    next_row = max(0, cur_row - 6)
+                else:
+                    next_row = min(row_total - 1, cur_row + 6)
+                next_idx = pmodel.index(next_row, 0)
+                popup.setCurrentIndex(next_idx)
+                sel_model = popup.selectionModel()
+                if sel_model is not None:
+                    sel_model.setCurrentIndex(next_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+                popup.scrollTo(next_idx)
+                popup.viewport().update()
+                event.accept()
+                return
+            if key in (Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Tab):
+                cur_idx = popup.currentIndex()
+                if not cur_idx.isValid() and row_total > 0:
+                    cur_idx = pmodel.index(0, 0)
+                if cur_idx.isValid():
+                    chosen = str(cur_idx.data(Qt.ItemDataRole.DisplayRole) or '')
+                    if chosen:
+                        self._insert_completion(chosen)
+                popup.hide()
+                event.accept()
+                return
+            if key in (Qt.Key.Key_Escape, Qt.Key.Key_Backtab):
+                popup.hide()
+                event.accept()
                 return
         if event.key() == Qt.Key.Key_Slash and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
             self._toggle_line_comment()
@@ -673,8 +710,9 @@ class SqlEditor(QPlainTextEdit):
                     cr.setWidth(popup_w)
                     self._completer.complete(cr)
                     popup.resize(popup_w, popup_h)
-                    if self._model.rowCount() > 0:
-                        first_idx = self._model.index(0, 0)
+                    pmodel = popup.model()
+                    if pmodel is not None and pmodel.rowCount() > 0:
+                        first_idx = pmodel.index(0, 0)
                         popup.setCurrentIndex(first_idx)
                         sel_model = popup.selectionModel()
                         if sel_model is not None:
@@ -682,6 +720,7 @@ class SqlEditor(QPlainTextEdit):
                                 first_idx,
                                 QItemSelectionModel.SelectionFlag.ClearAndSelect,
                             )
+                        popup.viewport().update()
                     return
         if popup is not None:
             popup.hide()
@@ -838,28 +877,28 @@ class SqlEditor(QPlainTextEdit):
         table_ref = self._detect_table_at_cursor() if has_text else ''
         can_expand_star = bool(table_ref and '*' in active_sql and self._columns_for_table(table_ref))
         items: list[tuple[str | None, object, bool]] = [
-            ('▷ 执行当前语句\tCtrl+Enter', self.run_statement_requested.emit, has_text),
+            ('▷ 执行当前语句\tCtrl+Enter', lambda _checked=False: self.run_statement_requested.emit(), has_text),
             (None, None, False),
         ]
         if table_ref:
             items.extend([
-                (f'查看表结构 ({table_ref})', lambda t=table_ref: self.inspect_table_requested.emit(t), True),
-                (f'查看 DDL ({table_ref})', lambda t=table_ref: self.view_ddl_requested.emit(t), True),
-                (f'查看前 100 行数据 ({table_ref})', lambda t=table_ref: self.preview_data_requested.emit(t), True),
+                (f'查看表结构 ({table_ref})', lambda _checked=False, t=table_ref: self.inspect_table_requested.emit(t), True),
+                (f'查看 DDL ({table_ref})', lambda _checked=False, t=table_ref: self.view_ddl_requested.emit(t), True),
+                (f'查看前 100 行数据 ({table_ref})', lambda _checked=False, t=table_ref: self.preview_data_requested.emit(t), True),
                 (None, None, False),
             ])
         if can_expand_star:
-            items.append(('将 * 展开为字段', self._expand_star_in_statement, True))
+            items.append(('将 * 展开为字段', lambda _checked=False: self._expand_star_in_statement(), True))
         if active_sql:
-            items.append(('发送到 AI 助手', lambda sql=active_sql: self.send_to_ai_requested.emit(sql), True))
+            items.append(('发送到 AI 助手', lambda _checked=False, sql=active_sql: self.send_to_ai_requested.emit(sql), True))
             items.append((None, None, False))
         items.extend([
-            ('格式化 SQL', self._format_sql_text, has_text),
-            ('压缩为单行', self._compress_sql_text, has_text),
-            ('注释 / 取消注释\tCtrl+/', self._toggle_line_comment, has_text),
-            ('转为大写', lambda: self._transform_selection(str.upper), has_sel),
-            ('转为小写', lambda: self._transform_selection(str.lower), has_sel),
-            ('删除空行', self._remove_blank_lines, has_text),
+            ('格式化 SQL', lambda _checked=False: self._format_sql_text(), has_text),
+            ('压缩为单行', lambda _checked=False: self._compress_sql_text(), has_text),
+            ('注释 / 取消注释\tCtrl+/', lambda _checked=False: self._toggle_line_comment(), has_text),
+            ('转为大写', lambda _checked=False: self._transform_selection(str.upper), has_sel),
+            ('转为小写', lambda _checked=False: self._transform_selection(str.lower), has_sel),
+            ('删除空行', lambda _checked=False: self._remove_blank_lines(), has_text),
             (None, None, False),
             ('撤销', self.undo, self.document().isUndoAvailable()),
             ('重做', self.redo, self.document().isRedoAvailable()),

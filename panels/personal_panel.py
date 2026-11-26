@@ -1349,7 +1349,10 @@ class KnowledgeTab(QWidget):
         suffix = '当前展示' if visible_only else '整表'
         suggested = f"{os.path.splitext(self._current.get('source', '学习资料'))[0]}_{self._current.get('sheet_name', 'Sheet')}_{suffix}.xlsx"
         start = get_dialog_save_path('personal_table_export', suggested)
-        path, _ = QFileDialog.getSaveFileName(self, f'导出{suffix}', start, 'Excel 工作簿 (*.xlsx)')
+        path, _ = QFileDialog.getSaveFileName(
+            self, f'导出{suffix}', start, 'Excel 工作簿 (*.xlsx)',
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if not path:
             return
         remember_dialog_path('personal_table_export', path)
@@ -1381,7 +1384,10 @@ class KnowledgeTab(QWidget):
         from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
         suggested = f"{os.path.splitext(self._current.get('source', '学习资料'))[0]}_编辑后.docx"
         start = get_dialog_save_path('personal_word_export', suggested)
-        path, _ = QFileDialog.getSaveFileName(self, '导出 Word 文档', start, 'Word 文档 (*.docx)')
+        path, _ = QFileDialog.getSaveFileName(
+            self, '导出 Word 文档', start, 'Word 文档 (*.docx)',
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if not path:
             return
         remember_dialog_path('personal_word_export', path)
@@ -1582,7 +1588,10 @@ class KnowledgeTab(QWidget):
         file_filter = 'Excel 工作簿 (*.xlsx)' if is_table else '文档 (*.txt *.md *.log *.sql *.json *.xml *.yaml *.yml *.csv *.docx)'
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         start = get_dialog_start_dir('personal_doc_update')
-        path, _ = QFileDialog.getOpenFileName(self, '选择更新后的文件', start, file_filter)
+        path, _ = QFileDialog.getOpenFileName(
+            self, '选择更新后的文件', start, file_filter,
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if not path:
             return
         remember_dialog_path('personal_doc_update', path)

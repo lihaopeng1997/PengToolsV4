@@ -3817,10 +3817,29 @@ QLabel#chat-breath {
     min-height: 8px;
     max-height: 8px;
 }
+QWidget#chat-tool-line {
+    background: #F4F1FD;
+    border: 1px solid #DFD8F5;
+    border-radius: 8px;
+}
+QWidget#chat-tool-line[state="ok"] {
+    background: #EFFAF4;
+    border: 1px solid #C7EDD7;
+}
+QWidget#chat-tool-line[state="failed"] {
+    background: #FFF2F2;
+    border: 1px solid #F6CACA;
+}
+QLabel#chat-tool-duration {
+    color: __TEXT_MUTED__;
+    font-size: 11px;
+    background: transparent;
+}
 QLabel#chat-tool-mark {
     background: transparent;
-    font-size: 14px;
-    min-width: 16px;
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 14px;
 }
 QLabel#chat-tool-mark[state="ok"] { color: __SUCCESS__; }
 QLabel#chat-tool-mark[state="running"] { color: __PRIMARY__; }
@@ -3828,22 +3847,44 @@ QLabel#chat-tool-mark[state="failed"] { color: __DANGER__; }
 QFrame#chat-code-block {
     background: __TERM_BG__;
     border: 1px solid __TERM_BORDER__;
-    border-radius: 8px;
+    border-radius: 10px;
+}
+QFrame#chat-code-block[sqlCard="true"] {
+    background: #FAF9FE;
+    border: 1px solid #E5E0F5;
+    border-radius: 10px;
+}
+QWidget#chat-code-header[sqlCard="true"] {
+    background: #F4F2FB;
+    border-bottom: 1px solid #EAE5F7;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
 }
 QLabel#chat-code-lang {
     color: __TERM_MUTED__;
     font-family: __FONT_MONO__;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+QFrame#chat-code-block[sqlCard="true"] QLabel#chat-code-lang {
+    color: #5C547A;
 }
 QPlainTextEdit#chat-code-edit {
     background: __TERM_BG__;
     color: __TERM_FG__;
     border: none;
     outline: none;
-    padding: 6px 10px;
+    padding: 8px 12px;
     font-family: __FONT_MONO__;
     font-size: 12.5px;
     selection-background-color: __TERM_SEL__;
     selection-color: __TERM_FG__;
+}
+QPlainTextEdit#chat-code-edit[sqlCard="true"] {
+    background: #FAF9FE;
+    color: #241F3A;
+    selection-background-color: #DCD4FA;
+    selection-color: #1E1933;
 }
 QPlainTextEdit#chat-code-edit:focus {
     border: none;
@@ -4648,26 +4689,31 @@ QComboBox#dc-agent-mini-combo::drop-down {
     width: 18px;
 }
 QPushButton#chat-sql-action-btn,
-QPushButton#chat-sql-run-btn {
-    background: rgba(255, 255, 255, 0.08);
-    color: #E2E8F0;
-    border: 1px solid rgba(255, 255, 255, 0.16);
+QPushButton#chat-sql-icon-btn,
+QPushButton#chat-sql-run-btn,
+QFrame#chat-code-block[sqlCard="true"] QPushButton#chat-copy-btn {
+    background: transparent;
+    color: #6B6387;
+    border: 1px solid transparent;
     border-radius: 6px;
-    padding: 1px 8px;
-    min-height: 20px;
+    padding: 0px 5px;
+    min-width: 24px;
+    min-height: 22px;
     max-height: 22px;
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 600;
 }
-QPushButton#chat-sql-action-btn:hover {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.3);
-    color: #FFFFFF;
+QPushButton#chat-sql-action-btn:hover,
+QPushButton#chat-sql-icon-btn:hover,
+QFrame#chat-code-block[sqlCard="true"] QPushButton#chat-copy-btn:hover {
+    background: rgba(114, 96, 224, 24);
+    border-color: rgba(114, 96, 224, 48);
+    color: #3D2FA3;
 }
 QPushButton#chat-sql-run-btn {
-    background: rgba(99, 102, 241, 0.28);
-    border-color: rgba(129, 140, 248, 0.55);
-    color: #E0E7FF;
+    color: #5B47D6;
+    background: rgba(114, 96, 224, 18);
+    border-color: rgba(114, 96, 224, 44);
 }
 QPushButton#chat-sql-run:hover,
 QPushButton#chat-sql-run-btn:hover {

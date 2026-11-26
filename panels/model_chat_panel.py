@@ -290,6 +290,8 @@ class ModelChatPanel(QWidget):
         split = QSplitter(Qt.Orientation.Horizontal)
         left = QFrame()
         left.setObjectName('chat-session-card')
+        left.setMinimumWidth(210)
+        left.setMaximumWidth(340)
         split.setHandleWidth(16)
         split.setProperty('prismGutter', True)
         self.session_card = left
@@ -396,11 +398,11 @@ class ModelChatPanel(QWidget):
         self.chat_splitter = split
         install_splitter_prefs(
             split,
-            defaults=[240, 900],
-            defaults_for_extent=lambda extent: [240, max(360, extent - 240)],
+            defaults=[268, 900],
+            defaults_for_extent=lambda extent: [268, max(420, extent - 268)],
             page_id='model-chat',
-            tab_id='main',
-            min_sizes=[180, 360],
+            tab_id='main-v2',
+            min_sizes=[210, 420],
             accessible_name='模型对话左右分隔',
         )
         root.addWidget(split, 1)
@@ -465,6 +467,7 @@ class ModelChatPanel(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(
             self, '选择文本文件' if zh else 'Pick text files',
             start, 'Text Files (*.txt *.sql *.py *.json *.md *.csv *.log *.yaml *.yml *.xml *.sh *.conf *.env);;All Files (*)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not paths:
             return
@@ -511,6 +514,7 @@ class ModelChatPanel(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(
             self, '选择图片' if zh else 'Pick images',
             start, 'Image Files (*.png *.jpg *.jpeg *.webp *.gif)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not paths:
             return
@@ -1161,6 +1165,7 @@ class _SkillManagerDialog(QDialog):
         path, _filter = QFileDialog.getOpenFileName(
             self, '选择 .md skill 文件' if zh else 'Pick .md skill file',
             start, 'Markdown (*.md)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not path:
             return
@@ -1227,6 +1232,7 @@ class _SkillManagerDialog(QDialog):
         task = self._current_task()
         if task is None:
             return
+        zh = self.zh
         enabled = not bool(task.get('enabled', True))
         try:
             harness_project.update_task(task.get('task'), enabled=enabled)

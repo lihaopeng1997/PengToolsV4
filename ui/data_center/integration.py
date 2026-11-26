@@ -519,12 +519,22 @@ class DataCenterWorkbenchAgent(QWidget):
         elif self._last_result_target is None:
             self._show_result_target(snapshot)
         schema_snapshot = selection.get("schema_snapshot") if isinstance(selection, Mapping) else None
+        recent_error_context = str(selection.get("recent_error_context") or "").strip() if isinstance(selection, Mapping) else ""
+        if isinstance(schema_snapshot, Mapping) and hasattr(self.agent_panel, "set_known_tables"):
+            table_names = []
+            for obj in schema_snapshot.get("objects") or ():
+                if isinstance(obj, Mapping):
+                    name = str(obj.get("name") or "").strip()
+                    owner = str(obj.get("owner") or "").strip()
+                    if name:
+                        table_names.append(f"{owner}.{name}" if owner else name)
+            self.agent_panel.set_known_tables(table_names)
         controller = DataCenterAgentController(
             self.agent_panel,
             snapshot,
             messages=self._conversation_messages,
-            runtime_factory=lambda fixed_context, fixed_model=model_choice, fixed_target=connection_choice, fixed_schema=schema_snapshot: self._build_runtime(
-                fixed_context, fixed_model, fixed_target, fixed_schema
+            runtime_factory=lambda fixed_context, fixed_model=model_choice, fixed_target=connection_choice, fixed_schema=schema_snapshot, fixed_err=recent_error_context: self._build_runtime(
+                fixed_context, fixed_model, fixed_target, fixed_schema, fixed_err
             ),
         )
         generation = self._conversation_generation
@@ -728,6 +738,7 @@ class DataCenterWorkbenchAgent(QWidget):
         model_choice: ModelChoice,
         connection_choice: ConnectionChoice | None,
         schema_snapshot: Mapping[str, Any] | None = None,
+        recent_error_context: str = "",
     ) -> _RuntimeOwner:
         # This callback is invoked only by DataCenterAgentController's QThread.
         model_config = self._profile_host.load_model_config(
@@ -807,6 +818,7 @@ class DataCenterWorkbenchAgent(QWidget):
             nosql_host=nosql_host,
             nosql_factory=nosql_factory,
             local_schema_snapshot=schema_snapshot,
+            recent_error_context=recent_error_context,
         )
         return _RuntimeOwner(runtime, nosql_factory)
 

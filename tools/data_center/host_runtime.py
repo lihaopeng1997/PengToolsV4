@@ -315,9 +315,12 @@ class TargetSQLPolicy:
                 return self._denied(decision, "scope_database_link_denied")
             if not schema_name:
                 # DUAL is Oracle's built-in one-row table, not a user object.
-                # Every other unqualified name stays denied: the session's
-                # current schema is not proof of which table would be read.
                 if table_name == "dual" and self.provider in {"oracle", "oceanbase_oracle"}:
+                    continue
+                # When the connection is bound to exactly one authorized schema
+                # (e.g. UATAUTOCORE / INTAUTOCORE), allow unqualified table names
+                # just like DBX instead of bouncing with SCOPE_DENIED.
+                if len(self.schemas) == 1:
                     continue
                 return self._denied(decision, "scope_default_schema_unbound")
             if _quoted_identifier(table.args.get("db")) and str(table.db).strip().strip('"`[]') not in self._schemas_exact:
@@ -1193,14 +1196,16 @@ def build_data_center_system_prompt(
         )
     else:
         guide = (
-            "这条连接是关系库。回答行数、字段或表内容之前必须调用 query_readonly。"
-            "没有成功的查询结果时不能结束，也不能空回复。\n"
-            "先 search_objects，只传用户提到的表名关键词（例如 keyword=orders），不要传 schema、database、connection；"
-            "务必使用用户提问里的准确表名，绝不要替换成无关表名。\n"
-            "kinds 可以不传；要传就用字符串数组。范围里列出的 schema 只是搜索边界，不要停下来让用户挑选。\n"
-            "若用户只是抽样查看表数据或统计行数，查到表后最多调用一次 describe_object 确认时间/主键列，即可立刻调用 query_readonly 执行 SELECT"
-            "（Oracle/OceanBase 用 WHERE ROWNUM <= 20 抽样，统计当天可用 TRUNC(日期列) = TRUNC(SYSDATE)）；不要反复翻页查看全部字段。\n"
-            "SQL 必须使用元数据里的 schema.表名，sql 参数只放一条 SELECT，不要加 Markdown 代码块。没写 schema 的业务表会被拒绝；"
+            "这条连接是关系库（OceanBase / Oracle / MySQL）。回答行数、字段或真实数据时必须调用只读工具，"
+            "不能空回复或编造结果。\n"
+            "【高效查表】若已知表名（用户提到、@引用或上下文已列出），可直接调用 describe_object(object_id='表名') 查列，"
+            "无需反复 search_objects。不确定表名时再调用 search_objects(keyword='关键词')。\n"
+            "【执行只读查询】抽样或统计时直接调用 query_readonly(sql='一条纯SELECT，不加Markdown代码块')；"
+            "OceanBase Oracle / Oracle 模式用 WHERE ROWNUM <= 100 抽样，当天可用 TRUNC(日期列) = TRUNC(SYSDATE)。\n"
+            "【写语句/排错场景】当用户贴入 INSERT/UPDATE/DELETE 或报错（如 ORA-00001 唯一约束冲突）要求排查或改写时：\n"
+            "1. 先查表结构确认主键/唯一键与字段；\n"
+            "2. 清晰指出报错根因；\n"
+            "3. 给出可直接点击执行的 ```sql 代码块：① 查询验证 SQL；② OceanBase Oracle 兼容的安全改写（如 MERGE INTO ... USING (SELECT ... FROM DUAL)）。\n"
             "连通测试用 SELECT 1 FROM DUAL。工具失败时只转述返回的 message，不要推测连接已断开。\n"
         )
     protocol = (
@@ -1438,6 +1443,7 @@ class DataCenterAgentRuntime:
         system_prompt: str = "",
         draft: bool = False,
         local_schema_snapshot: Mapping[str, Any] | None = None,
+        recent_error_context: str = "",
         runner_factory: Callable[..., AgentRunner] | None = None,
     ) -> None:
         if not isinstance(context, RunContext):
@@ -1462,6 +1468,7 @@ class DataCenterAgentRuntime:
         self._nosql_worker: _NoSQLWorker | None = None
         self._closed = False
         self._local_schema_snapshot = local_schema_snapshot if isinstance(local_schema_snapshot, Mapping) else None
+        self._recent_error_context = str(recent_error_context or "").strip()[:1000]
         self.projector = projector or ScopedResultProjector()
         self.query_owner_tracker = None if self.draft else QueryOwnerTracker()
 
@@ -1747,6 +1754,7 @@ class DataCenterAgentRuntime:
                 evidence_epoch = None
         previous_system_prompt = getattr(self.runner, "system_prompt", None)
         injected_schema_hint = False
+        extra_sections: list[str] = []
         if (
             not self.draft
             and self.provider in _RELATIONAL
@@ -1759,8 +1767,12 @@ class DataCenterAgentRuntime:
                 tuple(self.context.schema_allowlist),
             )
             if hint:
-                self.runner.system_prompt = f"{self._base_system_prompt}\n\n{hint}".strip()
-                injected_schema_hint = True
+                extra_sections.append(hint)
+        if self._recent_error_context and isinstance(previous_system_prompt, str):
+            extra_sections.append(f"【当前编辑器最近上下文/报错】\n{self._recent_error_context}")
+        if extra_sections:
+            self.runner.system_prompt = "\n\n".join([self._base_system_prompt, *extra_sections]).strip()
+            injected_schema_hint = True
         try:
             return self.runner.run(
                 self.context,

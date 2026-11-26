@@ -7,7 +7,9 @@ import math
 import re
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont, QTextDocument, QTextOption
+from PyQt6.QtGui import (
+    QColor, QFont, QSyntaxHighlighter, QTextCharFormat, QTextDocument, QTextOption,
+)
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
     QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
@@ -167,7 +169,77 @@ class _CodeEditor(QPlainTextEdit):
 
 
 _SQL_BLOCK_LANGS = frozenset({'sql', 'oracle', 'mysql', 'plsql', 'postgresql', 'postgres', 'oceanbase', 'tsql'})
-_SQL_SNIPPET_RE = re.compile(r'^\s*(?:--[^\n]*\n\s*)*(?:SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN)\b', re.IGNORECASE)
+_SQL_SNIPPET_RE = re.compile(
+    r'^\s*(?:--[^\n]*\n\s*)*(?:SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN|INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER)\b',
+    re.IGNORECASE,
+)
+_SQL_HL_KEYWORDS = frozenset({
+    'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as', 'on',
+    'join', 'left', 'right', 'inner', 'outer', 'full', 'cross', 'group', 'by',
+    'order', 'having', 'asc', 'desc', 'distinct', 'limit', 'offset', 'fetch',
+    'first', 'rows', 'only', 'rownum', 'union', 'all', 'with', 'case', 'when',
+    'then', 'else', 'end', 'exists', 'between', 'like', 'dual', 'sysdate',
+    'insert', 'into', 'values', 'update', 'set', 'delete', 'merge', 'using',
+    'matched', 'create', 'alter', 'drop', 'table', 'index', 'view', 'explain',
+    'plan', 'for', 'count', 'sum', 'avg', 'max', 'min', 'nvl', 'coalesce',
+    'to_char', 'to_date', 'trunc', 'substr', 'listagg',
+})
+
+
+class _ChatSqlHighlighter(QSyntaxHighlighter):
+    """DBX 浅色 SQL 卡片语法高亮：关键字玫红、字符串翠绿、数字琥珀、注释灰紫。"""
+
+    def __init__(self, document):
+        super().__init__(document)
+        self._kw = QTextCharFormat()
+        self._kw.setForeground(QColor('#C41D7F'))
+        self._kw.setFontWeight(QFont.Weight.DemiBold)
+        self._str = QTextCharFormat()
+        self._str.setForeground(QColor('#047857'))
+        self._num = QTextCharFormat()
+        self._num.setForeground(QColor('#B45309'))
+        self._cmt = QTextCharFormat()
+        self._cmt.setForeground(QColor('#8B85A1'))
+        self._cmt.setFontItalic(True)
+
+    def highlightBlock(self, text: str):  # noqa: N802
+        n = len(text)
+        lower = text.lower()
+        i = 0
+        while i < n:
+            ch = text[i]
+            if ch == '-' and i + 1 < n and text[i + 1] == '-':
+                self.setFormat(i, n - i, self._cmt)
+                return
+            if ch == "'":
+                j = i + 1
+                while j < n:
+                    if text[j] == "'":
+                        if j + 1 < n and text[j + 1] == "'":
+                            j += 2
+                            continue
+                        j += 1
+                        break
+                    j += 1
+                self.setFormat(i, j - i, self._str)
+                i = j
+                continue
+            if ch.isdigit() and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == '_')):
+                j = i + 1
+                while j < n and (text[j].isdigit() or text[j] == '.'):
+                    j += 1
+                self.setFormat(i, j - i, self._num)
+                i = j
+                continue
+            if ch.isalpha() or ch == '_':
+                j = i + 1
+                while j < n and (text[j].isalnum() or text[j] == '_'):
+                    j += 1
+                if lower[i:j] in _SQL_HL_KEYWORDS:
+                    self.setFormat(i, j - i, self._kw)
+                i = j
+                continue
+            i += 1
 
 
 def _is_sql_code_block(language: str, code: str) -> bool:
@@ -193,33 +265,42 @@ class CodeBlock(QFrame):
         self._raw_language = (language or '').strip()
         self._sql_actions_enabled = bool(sql_actions)
         self._fitted_total_h = 84
+        self._sql_highlighter = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self._header_bar = QWidget(self)
+        self._header_bar.setObjectName('chat-code-header')
         bar = QHBoxLayout(self._header_bar)
         bar.setContentsMargins(10, 4, 8, 4)
-        bar.setSpacing(6)
+        bar.setSpacing(4)
         self.language = QLabel(self._raw_language or 'text')
         self.language.setObjectName('chat-code-lang')
-        self.apply_sql_btn = QPushButton('应用')
-        self.apply_sql_btn.setObjectName('chat-sql-action-btn')
-        self.apply_sql_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.apply_sql_btn.setToolTip('将此 SQL 放入编辑器')
-        self.apply_sql_btn.clicked.connect(self._emit_apply_sql)
-        self.run_sql_btn = QPushButton('▷ 执行')
+        self.explain_sql_btn = QPushButton('⚡')
+        self.explain_sql_btn.setObjectName('chat-sql-icon-btn')
+        self.explain_sql_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.explain_sql_btn.setToolTip('查看执行计划 (EXPLAIN)')
+        self.explain_sql_btn.clicked.connect(self._emit_explain_sql)
+        self.run_sql_btn = QPushButton('▷')
         self.run_sql_btn.setObjectName('chat-sql-run-btn')
         self.run_sql_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.run_sql_btn.setToolTip('将此 SQL 放入编辑器并立即执行')
+        self.run_sql_btn.setToolTip('放入编辑器并立即执行')
         self.run_sql_btn.clicked.connect(self._emit_run_sql)
-        copy = QPushButton('复制')
-        copy.setObjectName('chat-copy-btn')
-        copy.setCursor(Qt.CursorShape.PointingHandCursor)
-        copy.clicked.connect(self._copy)
+        self.apply_sql_btn = QPushButton('↓')
+        self.apply_sql_btn.setObjectName('chat-sql-icon-btn')
+        self.apply_sql_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.apply_sql_btn.setToolTip('插入到当前 SQL 编辑器')
+        self.apply_sql_btn.clicked.connect(self._emit_apply_sql)
+        self.copy_btn = QPushButton('❐')
+        self.copy_btn.setObjectName('chat-copy-btn')
+        self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_btn.setToolTip('复制代码')
+        self.copy_btn.clicked.connect(self._copy)
         bar.addWidget(self.language, 1)
-        bar.addWidget(self.apply_sql_btn, 0)
+        bar.addWidget(self.explain_sql_btn, 0)
         bar.addWidget(self.run_sql_btn, 0)
-        bar.addWidget(copy, 0)
+        bar.addWidget(self.apply_sql_btn, 0)
+        bar.addWidget(self.copy_btn, 0)
         layout.addWidget(self._header_bar)
         self.editor = _CodeEditor()
         self.editor.setPlainText(self._code)
@@ -229,6 +310,17 @@ class CodeBlock(QFrame):
 
     def _copy(self) -> None:
         QApplication.clipboard().setText(self._code)
+        self.copy_btn.setText('✓')
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1200, lambda: self.copy_btn.setText('❐'))
+
+    def _emit_explain_sql(self) -> None:
+        text = self._code.strip().rstrip(';')
+        if not text:
+            return
+        if not text.upper().startswith('EXPLAIN'):
+            text = f'EXPLAIN {text}'
+        self.run_sql_requested.emit(text)
 
     def _emit_apply_sql(self) -> None:
         text = self._code.strip()
@@ -241,9 +333,23 @@ class CodeBlock(QFrame):
             self.run_sql_requested.emit(text)
 
     def _refresh_sql_actions(self) -> None:
-        visible = self._sql_actions_enabled and bool(self._code.strip()) and _is_sql_code_block(self._raw_language, self._code)
+        is_sql = bool(self._code.strip()) and _is_sql_code_block(self._raw_language, self._code)
+        visible = self._sql_actions_enabled and is_sql
+        self.explain_sql_btn.setVisible(visible)
         self.apply_sql_btn.setVisible(visible)
         self.run_sql_btn.setVisible(visible)
+        if is_sql:
+            self.language.setText('SQL')
+            if self._sql_highlighter is None:
+                self._sql_highlighter = _ChatSqlHighlighter(self.editor.document())
+        if bool(self.property('sqlCard')) != is_sql:
+            self.setProperty('sqlCard', is_sql)
+            self.editor.setProperty('sqlCard', is_sql)
+            self._header_bar.setProperty('sqlCard', is_sql)
+            for w in (self, self.editor, self._header_bar):
+                w.style().unpolish(w)
+                w.style().polish(w)
+                w.update()
 
     def set_code(self, language: str, code: str) -> None:
         self._raw_language = (language or '').strip()

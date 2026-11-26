@@ -449,8 +449,18 @@ class LogAnalysisWorkspace(QWidget):
         return self.mode.tabData(self.mode.currentIndex())
 
     def browse_files(self):
-        if self.selected_mode() == 'history' and self.source.currentData() == 'local':
-            paths, _ = QFileDialog.getOpenFileNames(self, '选择历史日志文件', '', '日志 (*.log *.txt *.gz);;所有文件 (*)')
+        from tools.agent_diag import log_agent_event
+        mode = self.selected_mode()
+        source = self.source.currentData()
+        log_agent_event('log_browse_files_open', mode=str(mode or ''), source=str(source or ''))
+        if mode == 'history' and source == 'local':
+            paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                '选择历史日志文件',
+                '',
+                '日志 (*.log *.txt *.gz);;所有文件 (*)',
+                options=QFileDialog.Option.DontUseNativeDialog,
+            )
         else:
             if not self.servers.currentData():
                 self.status.setText('请先选择服务器')
@@ -460,8 +470,9 @@ class LogAnalysisWorkspace(QWidget):
             if picker.exec() != picker.DialogCode.Accepted:
                 return
             paths = picker.selected_paths
+        log_agent_event('log_browse_files_selected', mode=str(mode or ''), count=len(paths or ()))
         if paths:
-            if self.selected_mode() == 'history':
+            if mode == 'history':
                 self.files.setPlainText('\n'.join(paths))
             else:
                 self.path.setText(paths[0])
@@ -693,7 +704,8 @@ class LogAnalysisWorkspace(QWidget):
     def _model_changed(self):
         # Skip the checkbox only when this model's address is a proven intranet target.
         self._apply_model_consent()
-        self.auto.setChecked(False)
+        if not self.models.currentData():
+            self.auto.setChecked(False)
 
     def _selected_model_is_proven_intranet(self):
         """True only when the selected endpoint is provably private. Unknown stays public."""
@@ -720,16 +732,32 @@ class LogAnalysisWorkspace(QWidget):
         self.model_consent.show()
 
     def _auto_changed(self, enabled):
+        model_id = self.models.currentData()
+        if enabled and not model_id:
+            self.auto.blockSignals(True)
+            self.auto.setChecked(False)
+            self.auto.blockSignals(False)
+            self.status.setText('请先在上方选择内网模型。')
+            return
+        if enabled and not self.model_consent.isChecked():
+            if self._selected_model_is_proven_intranet():
+                self.model_consent.setChecked(True)
+            else:
+                self.auto.blockSignals(True)
+                self.auto.setChecked(False)
+                self.auto.blockSignals(False)
+                self.status.setText('请先勾选确认使用所选模型。')
+                return
         if self.service:
-            if enabled and self.models.currentData() and self.model_consent.isChecked():
-                self.service.auto[self.selected_id] = self.models.currentData()
+            if enabled and self.selected_id:
+                self.service.auto[self.selected_id] = model_id
+                self.status.setText('已开启自动分析新异常。')
             else:
                 self.service.auto.pop(self.selected_id, None)
                 with self.service.lock:
                     self.service.queue = deque((q for q in self.service.queue if q[0] != self.selected_id or q[4] != 'auto'), maxlen=50)
-        if enabled and (not self.service or not self.models.currentData() or not self.model_consent.isChecked()):
-            self.auto.setChecked(False)
-            self.status.setText('先启动任务并选择、确认内网模型。')
+        elif enabled:
+            self.status.setText('已开启自动分析新异常（启动任务后生效）。')
 
     def _thinking_round(self, task_id):
         """The round that is currently collecting chunks for this task."""
@@ -956,7 +984,13 @@ class LogAnalysisWorkspace(QWidget):
     def save_report(self):
         if not self.draft.toPlainText().strip():
             return
-        path, _ = QFileDialog.getSaveFileName(self, '保存排查报告', '日志排查报告.md', 'Markdown (*.md)')
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            '保存排查报告',
+            '日志排查报告.md',
+            'Markdown (*.md)',
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if not path:
             return
         # Native save dialog owns overwrite confirmation.

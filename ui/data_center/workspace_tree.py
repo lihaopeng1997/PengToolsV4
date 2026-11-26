@@ -336,6 +336,13 @@ class WorkspaceTree(QTreeView):
         self._connection_indices.clear()
         self._connection_items.clear()
         path_nodes: dict[tuple[str, ...], QStandardItem] = {(): self.source_model.invisibleRootItem()}
+        # 数据中心专注 OceanBase：仅展示 OceanBase 连接（不改动磁盘上的其他连接配置）
+        ob_summaries = [
+            item for item in summaries
+            if "oceanbase" in str(item.dialect or "").casefold()
+        ]
+        if ob_summaries:
+            summaries = ob_summaries
         # 同类型数据库排在一起（按引擎清单顺序，未知类型靠后），类型内保持原顺序
         engine_order = {key: rank for rank, key in enumerate(_ENGINE_BADGES)}
         summaries = sorted(summaries, key=lambda item: engine_order.get(item.dialect, len(engine_order)))

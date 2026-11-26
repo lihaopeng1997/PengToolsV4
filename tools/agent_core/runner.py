@@ -83,10 +83,23 @@ _CONTINUE_INCOMPLETE = (
     + "{reason}。请重新给出完整回答，包含已确认现象、可能原因、缺失证据和下一步检查；"
     "不要只补一句结论，没有把握的部分明确标注为推断。"
 )
-_COLON_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "先读", "先看", "我先", "现在我将", "下面我")
-_LOOSE_PREFIXES = ("让我", "我来", "我先", "我再", "现在我将", "现在我来", "接下来我", "接下来让", "下面我", "下面让")
-_DIRECT_ACTION_PREFIXES = ("先看", "先读", "先查", "先检查", "先查看", "先了解", "继续看", "继续读", "继续查", "接下来看", "接下来读", "接下来查")
+_COLON_MARKERS = ("让我", "我来", "我再", "接下来", "继续读", "继续看", "继续查", "继续分析", "先读", "先看", "我先", "现在我将", "下面我", "我需要")
+_LOOSE_PREFIXES = (
+    "让我", "我来", "我先", "我再", "我需要", "现在我将", "现在我来", "现在我",
+    "接下来我", "接下来让", "接下来", "下面我", "下面让", "好的，我", "好的，让",
+    "明白，我", "明白了，我", "需要继续",
+)
+_DIRECT_ACTION_PREFIXES = (
+    "先看", "先读", "先查", "先检查", "先查看", "先了解",
+    "继续看", "继续读", "继续查", "继续查看", "继续读取", "继续分析", "继续检查",
+    "接下来看", "接下来读", "接下来查", "接下来查看", "接下来读取", "接下来分析",
+)
 _ACTION_STARTS = ("查", "搜", "看", "读", "检查", "分析", "核对", "验证", "执行", "调用", "确认", "定位", "打开", "获取", "尝试", "了解", "浏览")
+_CONTINUE_STUB_AFTER_TOOLS = (
+    "你刚才只输出了一句简短过渡语，既没有调用工具也没有给出完整分析结论。"
+    "如果还需要继续读取代码或搜索文件，请立刻输出工具调用；"
+    "如果现有证据已经足够，请直接输出完整、结构化的最终结论（包含关键类/方法/计算流程）。"
+)
 _COLON_ONLY_PREFIXES = ("下面", "接下来")
 _MAX_UNFINISHED_CONTINUATIONS = 3
 
@@ -645,6 +658,7 @@ class AgentRunner:
             tool_format_repairs = 0
             announcement_continuations = 0
             total_announcement_continuations = 0
+            tool_calls_executed_in_run = 0
             for turn_index in range(run_budget.limits.max_model_turns):
                 if closed:
                     break
@@ -960,16 +974,33 @@ class AgentRunner:
                         unfinished_work_announcement(visible_text)
                         or unfinished_work_announcement(complete_text)
                     )
+                    stripped_visible = str(visible_text or "").strip()
+                    stub_after_tools = (
+                        tool_calls_executed_in_run > 0
+                        and 0 < len(stripped_visible) < 90
+                        and "\n" not in stripped_visible
+                    )
+                    log_agent_event(
+                        'turn_no_tool_decision',
+                        run_id=context.run_id,
+                        turn_index=turn_index,
+                        text_chars=len(stripped_visible),
+                        announced=bool(announced),
+                        stub_after_tools=bool(stub_after_tools),
+                        tools_so_far=tool_calls_executed_in_run,
+                        cont_count=announcement_continuations,
+                    )
                     if (
-                        announced
+                        (announced or stub_after_tools)
                         and announcement_continuations < _MAX_ANNOUNCEMENT_CONTINUATIONS
                         and total_announcement_continuations < 16
                     ):
                         announcement_continuations += 1
                         total_announcement_continuations += 1
-                        spoken = visible_text if str(visible_text or "").strip() else complete_text
+                        spoken = visible_text if stripped_visible else complete_text
                         working_messages.append({"role": "assistant", "content": spoken})
-                        append_transient("user", _CONTINUE_ANNOUNCEMENT)
+                        prompt_text = _CONTINUE_ANNOUNCEMENT if announced else _CONTINUE_STUB_AFTER_TOOLS
+                        append_transient("user", prompt_text)
                         continue
                     if (
                         not str(visible_text or "").strip()
@@ -1044,6 +1075,7 @@ class AgentRunner:
                 # exploration does not exhaust its continuation budget early.
                 announcement_continuations = 0
                 unfinished_continuations = 0
+                tool_calls_executed_in_run += len(calls)
 
                 # Validate all calls before executing the first one.  A single
                 # unknown/conflicting request therefore cannot cause a partial

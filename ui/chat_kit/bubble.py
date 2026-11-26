@@ -122,18 +122,23 @@ class ToolStepLine(QWidget):
         self._seconds = seconds
         self._call_id = str(call_id or '')
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(8)
         self.mark = QLabel(self._mark(state))
         self.mark.setObjectName('chat-tool-mark')
         self._state = self._normalize(state)
+        self.setProperty('state', self._state)
         self.mark.setProperty('state', self._state)
         self.caption = QLabel(self._caption())
         self.caption.setTextFormat(Qt.TextFormat.PlainText)
         self.caption.setWordWrap(True)
         self.caption.setObjectName('chat-tool-caption')
+        self.duration_label = QLabel(self._duration_text())
+        self.duration_label.setObjectName('chat-tool-duration')
         layout.addWidget(self.mark, 0)
         layout.addWidget(self.caption, 1)
+        layout.addWidget(self.duration_label, 0)
+        self._polish(self)
         self._polish(self.mark)
 
     def text(self) -> str:
@@ -142,19 +147,26 @@ class ToolStepLine(QWidget):
     def set_state(self, state: str, seconds: float | None = None) -> None:
         self._state = self._normalize(state)
         self._seconds = seconds
+        self.setProperty('state', self._state)
         self.mark.setProperty('state', self._state)
         self.mark.setText(self._mark(state))
         self.caption.setText(self._caption())
+        self.duration_label.setText(self._duration_text())
+        self._polish(self)
         self._polish(self.mark)
+
+    def _duration_text(self) -> str:
+        if self._seconds is None:
+            return ''
+        return _duration(self._seconds)
 
     def _caption(self) -> str:
         label = self._label or tool_label(self._tool)
         target = self._target.strip()
-        pieces = [label]
+        prefix = '工具调用完成：' if self._state == 'ok' else ('工具调用失败：' if self._state == 'failed' else '')
+        pieces = [f'{prefix}{label}' if prefix else label]
         if target:
             pieces.append(target)
-        if self._seconds is not None:
-            pieces.append(_duration(self._seconds))
         return ' '.join(pieces)
 
     @staticmethod

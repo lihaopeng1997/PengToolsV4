@@ -370,7 +370,7 @@ def analyze(snapshot, question, model_id, cancellation, *, history=(), progress=
     runner = AgentRunner(TextCalls(adapter, delta_sink=delta_sink), tools, system_prompt=prompt, cancellation=cancellation,
                          context_planner=planner, on_event=event_sink,
                          answer_validator=log_answer_gap,
-                         budget_limits=BudgetLimits(max_model_turns=8, max_tool_calls=16,
+                         budget_limits=BudgetLimits(max_model_turns=12, max_tool_calls=32,
                             max_duration_s=600, max_input_chars=2 * 1024 * 1024, max_output_tokens=32768))
     # Always obtain evidence first, even when the model chooses a plain-text answer.
     initial = tools.execute(ToolCall('initial', 'get_host_snapshot' if snapshot.get('mode') == 'system' else 'list_events'), context=context, cancellation=cancellation)

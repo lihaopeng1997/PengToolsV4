@@ -744,7 +744,10 @@ class RequirementAttachmentDialog(QDialog):
         from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
         start = get_dialog_save_path('requirement_export', 'requirement.xlsx')
         self._sync_excel()
-        path, _ = QFileDialog.getSaveFileName(self, '导出 Excel', start, 'Excel 工作簿 (*.xlsx)')
+        path, _ = QFileDialog.getSaveFileName(
+            self, '导出 Excel', start, 'Excel 工作簿 (*.xlsx)',
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if not path: return
         remember_dialog_path('requirement_export', path)
         if not path.lower().endswith('.xlsx'): path += '.xlsx'
@@ -756,7 +759,10 @@ class RequirementAttachmentDialog(QDialog):
         from tools.dialog_paths import get_dialog_save_path, remember_dialog_path
         entry = copy.deepcopy(self._entry); entry['content'] = self.editor.toPlainText(); entry['document_html'] = self.editor.toHtml()
         start = get_dialog_save_path('requirement_export', 'requirement.docx')
-        path, _ = QFileDialog.getSaveFileName(self, '导出 Word', start, 'Word 文档 (*.docx)')
+        path, _ = QFileDialog.getSaveFileName(
+            self, '导出 Word', start, 'Word 文档 (*.docx)',
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if path:
             remember_dialog_path('requirement_export', path)
             if not path.lower().endswith('.docx'): path += '.docx'
@@ -839,7 +845,10 @@ class SvnCheckoutDialog(_GlassPrismDialog):
     def _browse(self):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         start = get_dialog_start_dir('requirement_local_root', self.root_edit.text())
-        folder = QFileDialog.getExistingDirectory(self, '选择本机存放目录', start)
+        folder = QFileDialog.getExistingDirectory(
+            self, '选择本机存放目录', start,
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if folder:
             remember_dialog_path('requirement_local_root', folder, is_directory=True)
             self.root_edit.setText(folder)
@@ -1298,7 +1307,10 @@ class RequirementDialog(QDialog):
     def _pick_path_into(self, editor):
         from tools.dialog_paths import get_dialog_start_dir, remember_dialog_path
         start = get_dialog_start_dir('requirement_project_dir', editor.text().strip() or self.local_path_edit.text().strip())
-        path = QFileDialog.getExistingDirectory(self, '选择本地开发项目目录', start)
+        path = QFileDialog.getExistingDirectory(
+            self, '选择本地开发项目目录', start,
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if path:
             remember_dialog_path('requirement_project_dir', path, is_directory=True)
             editor.setText(path)
@@ -1765,7 +1777,7 @@ class RequirementPanel(QWidget):
         self.status_filter.hide()
         size_combo(self.month_filter, 'sm'); size_combo(self.system_filter, 'md'); size_combo(self.kind_filter, 'sm'); size_combo(self.status_filter, 'sm')
         # 筛选只占必要宽度，并留足文本空间避免「全部月份 / 全部系统 / 全部类型」被裁切
-        for combo, width in ((self.month_filter, 128), (self.system_filter, 144), (self.kind_filter, 114)):
+        for combo, width in ((self.month_filter, 152), (self.system_filter, 156), (self.kind_filter, 120)):
             size_pick_combo(combo, width)
         toolbar_layout.addWidget(self.month_filter, 0, Qt.AlignmentFlag.AlignVCenter)
         toolbar_layout.addWidget(self.system_filter, 0, Qt.AlignmentFlag.AlignVCenter)

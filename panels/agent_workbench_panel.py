@@ -1233,6 +1233,7 @@ class AgentWorkbenchPanel(QWidget):
         start = get_dialog_start_dir('agent_workspace', os.path.expanduser('~'))
         path = QFileDialog.getExistingDirectory(
             self, '选择工作文件夹' if self.language == 'zh' else 'Select folder', start,
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not path:
             return
@@ -1976,6 +1977,7 @@ class AgentWorkbenchPanel(QWidget):
         start = get_dialog_start_dir('agent_workspace', os.path.expanduser('~'))
         path = QFileDialog.getExistingDirectory(
             self, '更换工作目录' if zh else 'Change directory', start,
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not path:
             return
@@ -2082,6 +2084,7 @@ class AgentWorkbenchPanel(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(
             self, '选择工作区内文件' if zh else 'Pick workspace file',
             ws_dir, 'All Files (*)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not paths:
             return
@@ -2114,6 +2117,7 @@ class AgentWorkbenchPanel(QWidget):
             '选择工作区内图片' if zh else 'Pick workspace image',
             ws_dir,
             'Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)',
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if not paths:
             return

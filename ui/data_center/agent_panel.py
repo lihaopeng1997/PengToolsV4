@@ -367,10 +367,10 @@ class DataCenterAgentPanel(QWidget):
         self.stop_button.setToolTip("请求停止当前运行" if zh else "Request cancellation of the active run")
         self.prompt_caption.setText("向 Agent 提问" if zh else "Ask the Agent")
         self.prompt_input.setPlaceholderText(
-            ("描述要生成的查询草稿；草稿模式不会访问数据库。" if draft else "描述要查询的数据，例如：汇总本月订单状态。")
+            ("描述要生成的 SQL 草稿；输入 @ 可引用表名（草稿模式不访问数据库）" if draft else "问我任何问题，输入 @ 可选择表并带入上下文（Enter 发送，Shift+Enter 换行）")
             if zh else
-            ("Describe a query draft; draft mode does not access the database." if draft else
-             "Describe the data you want to query, for example: summarize this month's order status.")
+            ("Describe a SQL draft; type @ to reference a table" if draft else
+             "Ask anything, type @ to reference tables (Enter to send, Shift+Enter for newline)")
         )
         self.prompt_input.setAccessibleName("Agent 提问" if zh else "Agent prompt")
         self.send_button.setText("发送" if zh else "Send")
@@ -415,6 +415,64 @@ class DataCenterAgentPanel(QWidget):
             self.progress_bar.setFormat("等待模型提供进度" if zh else "Waiting for provider progress")
         if self._terminal_seen and self._failure_reason:
             self._paint_chat_answer(markdown=True)
+
+    def set_known_tables(self, tables: list[str] | tuple[str, ...]) -> None:
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for item in tables or ():
+            name = str(item or "").strip()
+            if name and name.casefold() not in seen:
+                seen.add(name.casefold())
+                cleaned.append(name)
+        self._known_tables = cleaned[:80]
+
+    def _open_table_mention_menu(self, _checked: bool = False, *, strip_at: bool = False) -> None:
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        tables = getattr(self, "_known_tables", [])
+        if not tables:
+            act = menu.addAction("暂无已扫描表（请先展开连接或扫描结构）")
+            act.setEnabled(False)
+        else:
+            for name in tables[:30]:
+                act = menu.addAction(f"@{name}")
+                act.triggered.connect(lambda _c=False, t=name, sa=strip_at: self._insert_table_mention(t, strip_at=sa))
+        btn = getattr(self, "mention_table_btn", self.prompt_input)
+        menu.exec(btn.mapToGlobal(btn.rect().topLeft()))
+
+    def _insert_table_mention(self, table_name: str, *, strip_at: bool = False) -> None:
+        cursor = self.prompt_input.textCursor()
+        if strip_at and cursor.position() > 0:
+            text_before = self.prompt_input.toPlainText()[:cursor.position()]
+            if text_before.endswith("@"):
+                cursor.deletePreviousChar()
+        cursor.insertText(f"@{table_name} ")
+        self.prompt_input.setTextCursor(cursor)
+        self.prompt_input.setFocus()
+
+    def _open_template_menu(self, _checked: bool = False) -> None:
+        from PyQt6.QtWidgets import QMenu
+        templates = (
+            ("排查 SQL 报错并给安全改写", "请排查下面 SQL 执行报错原因，并给出：① 查询验证 SQL；② OceanBase Oracle 兼容的安全改写（如 MERGE INTO）：\n"),
+            ("改写为 MERGE（存在则更新、不存在则插入）", "请将下面的 INSERT 语句改写为 OceanBase Oracle 兼容的 MERGE INTO 安全写法，并补充一条验证查询 SQL：\n"),
+            ("OceanBase 执行计划与索引优化", "请分析下面 SQL 的执行瓶颈、索引命中情况，并给出 OceanBase Oracle 优化后的 SQL：\n"),
+            ("查看表结构与主键/唯一约束", "请查询目标表的字段、主键/唯一约束以及前 20 条样例数据："),
+        )
+        menu = QMenu(self)
+        for label, body in templates:
+            act = menu.addAction(label)
+            act.triggered.connect(lambda _c=False, text=body: self._apply_prompt_template(text))
+        btn = getattr(self, "template_btn", self.prompt_input)
+        menu.exec(btn.mapToGlobal(btn.rect().topLeft()))
+
+    def _apply_prompt_template(self, template_text: str) -> None:
+        existing = self.prompt_input.toPlainText().strip()
+        combined = f"{template_text}{existing}" if existing else template_text
+        self.prompt_input.setPlainText(combined)
+        cursor = self.prompt_input.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.prompt_input.setTextCursor(cursor)
+        self.prompt_input.setFocus()
 
     def _truncation_marker(self, channel: str) -> str:
         if self._display_language == "zh":
@@ -585,6 +643,8 @@ class DataCenterAgentPanel(QWidget):
                     and not self._input_composing):
                 self._on_send_prompt()
                 return True
+            if (event.type() == QEvent.Type.KeyPress and event.text() == "@" and getattr(self, "_known_tables", None)):
+                QTimer.singleShot(0, lambda: self._open_table_mention_menu(strip_at=True))
         if watched is getattr(self, "stop_button", None) and event.type() == QEvent.Type.EnabledChange:
             self._sync_compact_rail()
         if (
@@ -814,6 +874,19 @@ class DataCenterAgentPanel(QWidget):
         prompt_actions = QHBoxLayout()
         prompt_actions.setContentsMargins(0, 0, 0, 0)
         prompt_actions.setSpacing(6)
+        self._known_tables: list[str] = []
+        self.mention_table_btn = QPushButton("@ 表", composer)
+        self.mention_table_btn.setObjectName("dc-agent-mention-btn")
+        self.mention_table_btn.setToolTip("选择表名并以 @表名 带入上下文")
+        apply_button(self.mention_table_btn, "ghost", compact=True)
+        self.mention_table_btn.clicked.connect(self._open_table_mention_menu)
+        prompt_actions.addWidget(self.mention_table_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.template_btn = QPushButton("模板 ▾", composer)
+        self.template_btn.setObjectName("dc-agent-template-btn")
+        self.template_btn.setToolTip("一键套用常用 OceanBase / SQL 排查模板")
+        apply_button(self.template_btn, "ghost", compact=True)
+        self.template_btn.clicked.connect(self._open_template_menu)
+        prompt_actions.addWidget(self.template_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self._composer_bottom_slot = QHBoxLayout()
         self._composer_bottom_slot.setContentsMargins(0, 0, 0, 0)
         self._composer_bottom_slot.setSpacing(6)

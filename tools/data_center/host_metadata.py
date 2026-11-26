@@ -873,12 +873,15 @@ class MetadataHost:
     ) -> ToolResult:
         values = dict(arguments or {}) if isinstance(arguments, Mapping) else {}
         if object_id is None:
-            object_id = values.get("object_id")
+            for alias_key in ("object_id", "table", "table_name", "name"):
+                if values.get(alias_key) is not None:
+                    object_id = values.get(alias_key)
+                    break
         if field_filter is None and "field_filter" in values:
             field_filter = values.get("field_filter")
         if page_token is None and "page_token" in values:
             page_token = values.get("page_token")
-        if set(values).difference({"object_id", "field_filter", "page_token"}):
+        if set(values).difference({"object_id", "table", "table_name", "name", "field_filter", "page_token"}):
             return _failure("ARGUMENT_INVALID", "metadata description arguments are closed", scope=self.target.scope, query_id=query_id)
         try:
             token = _bounded_identifier(object_id, "object_id", required=True)
@@ -1352,21 +1355,67 @@ class MetadataHost:
                 else:
                     item["comment_available"] = False
                 fields_out.append(item)
+            constraints_out: list[dict[str, Any]] = []
+            if offset == 0 and self.target.provider in {"oracle", "oceanbase_oracle"}:
+                constraint_sql = (
+                    "SELECT c.constraint_name, c.constraint_type, cc.column_name, cc.position "
+                    "FROM all_constraints c "
+                    "JOIN all_cons_columns cc "
+                    "  ON cc.owner = c.owner AND cc.constraint_name = c.constraint_name "
+                    "WHERE c.owner = :1 AND c.table_name = :2 AND c.constraint_type IN ('P', 'U') "
+                    "ORDER BY c.constraint_name, cc.position"
+                )
+                try:
+                    raw_c = _call_relational_lease(
+                        lease,
+                        constraint_sql,
+                        (ref.schema, ref.name),
+                        template_id=f"{self.target.provider}:describe_constraints",
+                        row_limit=100,
+                        cancellation=cancellation,
+                        deadline=deadline,
+                        query_id=query_id,
+                    )
+                    c_result = _result(raw_c, query_id=query_id, scope=self.target.scope)
+                    if c_result.ok:
+                        grouped: dict[str, dict[str, Any]] = {}
+                        for crow in _rows(c_result):
+                            cname = _safe_text(_row_value(crow, 0, "constraint_name", _row_value(crow, 0, "CONSTRAINT_NAME")), 128)
+                            ctype = _safe_text(_row_value(crow, 1, "constraint_type", _row_value(crow, 1, "CONSTRAINT_TYPE")), 8).upper()
+                            ccol = _safe_text(_row_value(crow, 2, "column_name", _row_value(crow, 2, "COLUMN_NAME")), 128)
+                            if not cname or not ccol:
+                                continue
+                            entry = grouped.setdefault(
+                                cname,
+                                {
+                                    "name": cname,
+                                    "type": "PRIMARY KEY" if ctype == "P" else "UNIQUE",
+                                    "columns": [],
+                                },
+                            )
+                            if ccol not in entry["columns"]:
+                                entry["columns"].append(ccol)
+                        constraints_out = list(grouped.values())
+                except Exception:
+                    constraints_out = []
             next_token = self._next_page(
                 _CursorState(self.target.scope_key, "describe", (self._find_object_token(ref), fields), offset + len(visible), created=time.monotonic())
             ) if has_more else None
+            payload_data: dict[str, Any] = {
+                "object_id": self._find_object_token(ref),
+                "name": ref.name,
+                "kind": ref.kind,
+                "schema": ref.schema,
+                "fields": fields_out,
+                "next_page_token": next_token,
+                "comments_available": bool(template.comments_available),
+            }
+            if constraints_out:
+                payload_data["constraints"] = constraints_out
             return ToolResult(
                 ok=True,
                 code="OK",
-                data={
-                    "object_id": self._find_object_token(ref),
-                    "name": ref.name,
-                    "kind": ref.kind,
-                    "schema": ref.schema,
-                    "fields": fields_out,
-                    "next_page_token": next_token,
-                    "comments_available": bool(template.comments_available),
-                },
+                data=payload_data,
                 evidence_id=_safe_identifier(f"metadata:{query_id}" if query_id else None),
                 query_id=_safe_identifier(query_id),
                 scope=self.target.scope,
